@@ -7,15 +7,27 @@
 // (tilde-aware) and shows a hint, but does not participate in ajv/schema
 // validation, so it can never block the debounced autosave.
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import FolderIcon from "./icons/folder.svg?react";
 import { api } from "./api";
 
+/** Bumped by `Settings.tsx` whenever something outside a path field's own value
+ *  may have fixed the filesystem underneath it (#147) — currently, closing the
+ *  health-check modal. `usePathExists` re-probes on every bump regardless of
+ *  whether the path text itself changed. Defaults to `0` so the hook works
+ *  unchanged wherever the provider is absent (tests, other windows). */
+export const PathProbeGenerationContext = createContext(0);
+
+export const PathProbeGenerationProvider = PathProbeGenerationContext.Provider;
+
 /** Debounced existence check for `path`. Returns `null` while unknown/checking,
  *  `true`/`false` once resolved. Empty/whitespace paths resolve to `null` (an
- *  empty field is "use default", never a validation error). */
+ *  empty field is "use default", never a validation error). Re-runs whenever
+ *  the ambient probe generation (see `PathProbeGenerationContext`) bumps, even
+ *  if `path` itself hasn't changed. */
 export function usePathExists(path: string | null | undefined): boolean | null {
   const value = (path ?? "").trim();
+  const generation = useContext(PathProbeGenerationContext);
   const [exists, setExists] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -39,7 +51,7 @@ export function usePathExists(path: string | null | undefined): boolean | null {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [value]);
+  }, [value, generation]);
 
   return exists;
 }

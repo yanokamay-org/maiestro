@@ -27,6 +27,7 @@ import { DismissibleError } from "./components/DismissibleError";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { useHideOnClose, useTauriListen } from "./hooks/useTauriListen";
 import { useDebouncedAutosave } from "./hooks/useDebouncedAutosave";
+import { PathProbeGenerationProvider } from "./PathField";
 
 type SettingsSelection =
   | { kind: "identity"; id: string }
@@ -92,6 +93,10 @@ export function Settings() {
   // `health-check` event; `total` (known once the first event lands) lets the
   // modal stop the spinner. `loading` stays true until the command resolves.
   const [health, setHealth] = useState<HealthState | null>(null);
+  // Bumped when something outside the forms' own data may have fixed the
+  // filesystem/tool resolution underneath a path hint (#147) — currently, the
+  // health modal closing. See `refreshProbes` and `PathProbeGenerationContext`.
+  const [probeGeneration, setProbeGeneration] = useState(0);
   const [browse, setBrowse] = useState<{
     identityId: string | null;
     repos: GHRepo[] | null;
@@ -382,6 +387,18 @@ export function Settings() {
     }
   }
 
+  // Re-probe the advisory, environment-derived hints in both forms — path
+  // existence (cloned repo dir, worktree prefix, env files, tool overrides)
+  // and the Tool paths status line — without touching settings *data* (#147).
+  // Deliberately not `loadAppSettings()`: that re-reads settings.json and
+  // re-seeds the autosave baseline, which would be wrong mid-edit. Called when
+  // the health modal closes, since its remediation commands are what the user
+  // may have just acted on.
+  function refreshProbes() {
+    setProbeGeneration((g) => g + 1);
+    api.toolsResolved().then(setResolvedTools).catch(() => {});
+  }
+
   // Run the repo health check and stream results into the modal (#93). Each
   // check arrives as a `health-check` event; the command's return value is the
   // authoritative final list (reconciles any missed event).
@@ -461,6 +478,7 @@ export function Settings() {
   }
 
   return (
+    <PathProbeGenerationProvider value={probeGeneration}>
     <main className="panel panel--window">
       <div className="settings-layout">
         {/* ── Sidebar ── */}
@@ -836,9 +854,10 @@ export function Settings() {
         <HealthModal
           state={health}
           onRetry={() => runHealthCheck(health.repo)}
-          onClose={() => setHealth(null)}
+          onClose={() => { setHealth(null); refreshProbes(); }}
         />
       )}
     </main>
+    </PathProbeGenerationProvider>
   );
 }
