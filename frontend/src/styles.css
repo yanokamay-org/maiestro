@@ -1963,6 +1963,38 @@ body {
   margin-top: 1px;
 }
 
+.onboarding-fields {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0 18px;
+  text-align: left;
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.onboarding-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.onboarding-field-hint {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.onboarding-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .onboarding-btn {
   padding: 8px 22px;
   font-size: 13px;
@@ -1983,6 +2015,12 @@ body {
 .onboarding-btn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.onboarding-btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
 }
 
 .onboarding-foot {

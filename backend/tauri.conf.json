@@ -53,8 +53,8 @@
       {
         "label": "onboarding",
         "title": "Welcome to mAIestro",
-        "width": 440,
-        "height": 340,
+        "width": 460,
+        "height": 400,
         "resizable": false,
         "visible": false,
         "center": true,
