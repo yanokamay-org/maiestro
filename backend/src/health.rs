@@ -3,8 +3,9 @@
 //! `repo_health_check` runs a set of informational diagnostics for one tracked
 //! repo — cloned checkout, the CLIs mAIestro invokes (`git`, `claude`, `code`),
 //! the GitHub token *and the permissions it grants*, the configured env files,
-//! and the worktree terminal font — and returns a `HealthReport` the Settings
-//! window renders in a modal.
+//! the worktree terminal font, and (trailing, issue #146) how old each directly
+//! invoked CLI is against a hardcoded minimum — and returns a `HealthReport` the
+//! Settings window renders in a modal.
 //!
 //! The checks never mutate anything and never block spawning; they surface
 //! likely problems early instead of letting them fail mid-spawn. The GitHub
@@ -99,7 +100,7 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     // the popover streams rows (and shows a live spinner for the running one)
     // instead of waiting for the whole batch. `total` lets the UI stop spinning.
     let mut checks: Vec<HealthCheck> = Vec::new();
-    let total = 7;
+    let total = 8;
     // Each `step!` announces the check's title (so the spinner can name what's
     // running) *before* running it, then emits the result. The title here must
     // match the label the check function produces — the result event carries the
@@ -122,6 +123,7 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     step!("Session editor available", check_editor());
     step!("Configured env files exist", check_env_files(settings.cloned_repo_dir.as_deref(), &settings.env_files));
     step!("Terminal font installed", check_terminal_font());
+    step!("Tool versions", check_tool_versions(&repo).await);
 
     Ok(HealthReport { repo, checks })
 }
@@ -761,6 +763,208 @@ fn write_permission_check(
     }
 }
 
+// ── Tool versions (issue #146) ──────────────────────────────────────────────
+//
+// The earlier checks confirm each directly-invoked tool *resolves*
+// (`check_cli`, `check_claude`, `check_editor`); this trailing group asks how
+// old it is. mAIestro leans on features only newer releases have — Claude
+// Code's `--remote-control`/`--name` launch flags, the `PostToolUseFailure`
+// hook, `/color`; `git worktree`; VS Code's `--disable-workspace-trust` — so a
+// stale binary can fail mid-spawn or degrade silently. A version below the
+// floor is a **`Warn`**, never a `Fail`: an old tool might still work, and this
+// report is informational like the rest of it. Floors are hardcoded constants,
+// not a setting — bumping one is a code change that ships with whatever
+// feature needs it.
+
+/// One entry in the minimum-version table: the `tools::find_tool` name, the
+/// health-check label, the minimum version (dotted, parsed via
+/// [`parse_version`]), and why the floor exists (shown in the warn detail).
+struct ToolMinimum {
+    tool: &'static str,
+    label: &'static str,
+    min: &'static str,
+    reason: &'static str,
+}
+
+/// Hardcoded floors, in the order their sub-checks appear in the report.
+const MIN_TOOL_VERSIONS: &[ToolMinimum] = &[
+    ToolMinimum {
+        tool: "claude",
+        label: "Claude Code",
+        min: "2.0.0",
+        reason: "needed for --remote-control, --name, the PostToolUseFailure hook, and /color",
+    },
+    ToolMinimum {
+        tool: "git",
+        label: "Git",
+        min: "2.22.0",
+        reason: "needed for reliable `git worktree` and `for-each-ref` support",
+    },
+    ToolMinimum {
+        tool: "code",
+        label: "VS Code",
+        min: "1.80.0",
+        reason: "needed for --disable-workspace-trust",
+    },
+];
+
+/// Extract the first run of `digits(.digits)*` from the first non-empty line of
+/// `output` — every tool prints its version as the first thing on the first
+/// line (`2.1.270 (Claude Code)`, `git version 2.54.0`, or `1.137.0` followed by
+/// a commit hash and arch on later lines). `None` when no such run is found, so
+/// callers fall back to `Info` rather than guessing.
+fn parse_version(output: &str) -> Option<Vec<u64>> {
+    let line = output.lines().find(|l| !l.trim().is_empty())?;
+    let chars: Vec<char> = line.chars().collect();
+    let start = chars.iter().position(|c| c.is_ascii_digit())?;
+    let mut end = start;
+    while end < chars.len() && (chars[end].is_ascii_digit() || chars[end] == '.') {
+        end += 1;
+    }
+    let mut token: String = chars[start..end].iter().collect();
+    while token.ends_with('.') {
+        token.pop();
+    }
+    if token.is_empty() {
+        return None;
+    }
+    token.split('.').map(|p| p.parse().ok()).collect()
+}
+
+/// Component-wise `found >= min`, treating a missing trailing component as `0`
+/// on either side (so `2.0` is at least `2.0.0`, and `2` is not at least
+/// `2.0.1`).
+fn version_at_least(found: &[u64], min: &[u64]) -> bool {
+    for i in 0..min.len().max(found.len()) {
+        let f = found.get(i).copied().unwrap_or(0);
+        let m = min.get(i).copied().unwrap_or(0);
+        if f != m {
+            return f > m;
+        }
+    }
+    true
+}
+
+/// The result of probing `<tool> --version`, kept separate from the resolve
+/// step so [`tool_version_check`] is a pure classifier every branch of which is
+/// unit-tested without spawning anything.
+enum VersionOutcome {
+    /// The command exited with output to parse.
+    Output(String),
+    /// The probe was killed after the timeout.
+    TimedOut,
+    /// The command couldn't be run or exited with nothing usable on stdout.
+    Error(String),
+}
+
+/// A resolved-but-unusable-`brew` path never gets an upgrade command guessed —
+/// only these two tools have an unambiguous one. `claude update` self-updates
+/// regardless of install method; `git` only offers `brew upgrade git` when the
+/// resolved binary actually lives under a Homebrew prefix (Apple's Xcode-stub
+/// git and a system git can't be upgraded that way). VS Code updates itself
+/// from its own menu, so `code` never gets a command.
+fn version_upgrade_command(tool: &str, path: &std::path::Path) -> Option<String> {
+    match tool {
+        "claude" => Some("claude update".to_string()),
+        "git" => {
+            let p = path.to_string_lossy();
+            (p.starts_with("/opt/homebrew/") || p.starts_with("/usr/local/")).then(|| "brew upgrade git".to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Turn a `--version` probe into the version sub-check. `resolved` is the
+/// binary path; `None` means `find_tool` couldn't resolve it at all — the
+/// corresponding earlier check (e.g. "Git available") already reported that at
+/// the right severity, so this just points back at it rather than repeating the
+/// failure. Pure so every branch is unit-tested directly.
+fn tool_version_check(min: &ToolMinimum, resolved: Option<&std::path::Path>, outcome: VersionOutcome) -> HealthCheck {
+    let id = format!("{}_version", min.tool);
+    let label = format!("{} ≥ {}", min.label, min.min);
+    let Some(path) = resolved else {
+        return HealthCheck::new(&id, &label, HealthStatus::Skipped, "Not found — see above");
+    };
+    match outcome {
+        VersionOutcome::TimedOut => {
+            HealthCheck::new(&id, &label, HealthStatus::Warn, format!("`{} --version` timed out", min.tool))
+        }
+        VersionOutcome::Error(e) => {
+            HealthCheck::new(&id, &label, HealthStatus::Warn, format!("Couldn't run `{} --version`: {}", min.tool, snippet(&e)))
+        }
+        VersionOutcome::Output(stdout) => {
+            let Some(found) = parse_version(&stdout) else {
+                return HealthCheck::new(
+                    &id,
+                    &label,
+                    HealthStatus::Info,
+                    format!("Couldn't parse version: {}", snippet(&stdout)),
+                );
+            };
+            // The floor is a compile-time constant validated by
+            // `every_tool_minimum_parses`, so this always succeeds in practice.
+            let min_parts = parse_version(min.min).unwrap_or_default();
+            let found_str = found.iter().map(u64::to_string).collect::<Vec<_>>().join(".");
+            if version_at_least(&found, &min_parts) {
+                HealthCheck::new(&id, &label, HealthStatus::Pass, format!("{found_str} · {}", path.display()))
+            } else {
+                let check = HealthCheck::new(
+                    &id,
+                    &label,
+                    HealthStatus::Warn,
+                    format!("{found_str} is older than {} — {}", min.min, min.reason),
+                );
+                match version_upgrade_command(min.tool, path) {
+                    Some(cmd) => check.with_command(cmd),
+                    None => check,
+                }
+            }
+        }
+    }
+}
+
+/// Resolve and probe one tool's `--version`, then classify via
+/// [`tool_version_check`]. A 10s timeout is generous — every one of these
+/// prints its version in well under a second — but keeps a hung binary from
+/// stalling the health run.
+async fn check_one_tool_version(repo: &str, min: &ToolMinimum) -> HealthCheck {
+    let Some(path) = crate::tools::find_tool(min.tool) else {
+        return tool_version_check(min, None, VersionOutcome::Error(String::new()));
+    };
+    log_command(repo, &format!("{} --version", path.display()));
+    let mut cmd = crate::tools::tokio_command(min.tool);
+    cmd.arg("--version");
+    cmd.kill_on_drop(true);
+    let run = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await;
+    let outcome = match run {
+        Err(_) => VersionOutcome::TimedOut,
+        Ok(Err(e)) => VersionOutcome::Error(e.to_string()),
+        Ok(Ok(o)) => {
+            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+            if o.status.success() || !stdout.trim().is_empty() {
+                VersionOutcome::Output(stdout)
+            } else {
+                VersionOutcome::Error(String::from_utf8_lossy(&o.stderr).to_string())
+            }
+        }
+    };
+    tool_version_check(min, Some(path.as_path()), outcome)
+}
+
+/// Run `<tool> --version` for every entry in [`MIN_TOOL_VERSIONS`] and return
+/// the parent "Tool versions" row with one sub-check per tool, rolled up the
+/// same way every other multi-sub group is (see [`rollup`]).
+async fn check_tool_versions(repo: &str) -> HealthCheck {
+    let id = "tool_versions";
+    let label = "Tool versions";
+    let mut sub = Vec::with_capacity(MIN_TOOL_VERSIONS.len());
+    for min in MIN_TOOL_VERSIONS {
+        sub.push(check_one_tool_version(repo, min).await);
+    }
+    let status = rollup(&sub);
+    HealthCheck { id: id.into(), label: label.into(), status, detail: String::new(), sub, command: None }
+}
+
 /// Worst-case roll-up of a group's sub-checks into the parent status:
 /// any Fail → Fail; else any Warn → Warn; else any Skipped → Skipped; else Pass.
 /// `Info` is deliberately *not* ranked — it reports no problem, so a group whose
@@ -948,5 +1152,125 @@ mod tests {
         // preserves case, so callers must use eq_ignore_ascii_case.
         let parsed = remote_owner_name("https://github.com/Owner/Name.git").unwrap();
         assert!(parsed.eq_ignore_ascii_case("owner/name"));
+    }
+
+    // ── Tool versions ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_version_reads_the_three_real_output_shapes() {
+        assert_eq!(parse_version("2.1.270 (Claude Code)\n"), Some(vec![2, 1, 270]));
+        assert_eq!(parse_version("git version 2.54.0\n"), Some(vec![2, 54, 0]));
+        // Apple's build appends a suffix after the version; the parser must stop
+        // at the first non-digit/dot character rather than swallowing it.
+        assert_eq!(parse_version("git version 2.39.3 (Apple Git-145)\n"), Some(vec![2, 39, 3]));
+        // `code --version` is three lines: version, commit hash, arch. Only the
+        // first line matters.
+        assert_eq!(
+            parse_version("1.137.0\n645f29cc3176500b4b5762ba887cf2a7f0ffdf2c\narm64\n"),
+            Some(vec![1, 137, 0])
+        );
+    }
+
+    #[test]
+    fn parse_version_rejects_unparseable_output() {
+        assert_eq!(parse_version("command not found"), None);
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("\n\n"), None);
+    }
+
+    #[test]
+    fn version_at_least_compares_component_wise_with_missing_as_zero() {
+        assert!(version_at_least(&[2, 1, 270], &[2, 0, 0]));
+        assert!(!version_at_least(&[1, 9], &[2, 0]));
+        // A missing trailing component is 0 on either side.
+        assert!(version_at_least(&[2, 0], &[2, 0, 0]));
+        assert!(!version_at_least(&[2], &[2, 0, 1]));
+        assert!(version_at_least(&[2, 0, 0], &[2, 0, 0]));
+    }
+
+    /// A typo'd floor would silently disable the check for that tool, so every
+    /// entry in the table must actually parse.
+    #[test]
+    fn every_tool_minimum_parses() {
+        for m in MIN_TOOL_VERSIONS {
+            assert!(parse_version(m.min).is_some(), "unparsable floor for {}: {}", m.tool, m.min);
+        }
+    }
+
+    fn claude_min() -> ToolMinimum {
+        ToolMinimum { tool: "claude", label: "Claude Code", min: "2.0.0", reason: "needed for testing" }
+    }
+
+    #[test]
+    fn tool_version_check_passes_when_at_or_above_floor() {
+        let min = claude_min();
+        let path = std::path::PathBuf::from("/opt/homebrew/bin/claude");
+        let check = tool_version_check(&min, Some(&path), VersionOutcome::Output("2.1.270 (Claude Code)\n".into()));
+        assert_eq!(check.status, HealthStatus::Pass);
+        assert!(check.detail.contains("2.1.270"), "detail: {}", check.detail);
+        assert!(check.detail.contains("/opt/homebrew/bin/claude"), "detail: {}", check.detail);
+        assert_eq!(check.command, None);
+    }
+
+    #[test]
+    fn tool_version_check_warns_below_floor_with_reason_and_command() {
+        let min = claude_min();
+        let path = std::path::PathBuf::from("/usr/local/bin/claude");
+        let check = tool_version_check(&min, Some(&path), VersionOutcome::Output("1.9.0\n".into()));
+        assert_eq!(check.status, HealthStatus::Warn);
+        assert!(check.detail.contains("older than 2.0.0"), "detail: {}", check.detail);
+        assert!(check.detail.contains("needed for testing"), "detail: {}", check.detail);
+        assert_eq!(check.command.as_deref(), Some("claude update"));
+    }
+
+    #[test]
+    fn tool_version_check_skips_when_unresolved() {
+        let min = claude_min();
+        let check = tool_version_check(&min, None, VersionOutcome::Error(String::new()));
+        assert_eq!(check.status, HealthStatus::Skipped);
+    }
+
+    #[test]
+    fn tool_version_check_is_info_when_unparseable() {
+        let min = claude_min();
+        let path = std::path::PathBuf::from("/usr/local/bin/claude");
+        let check = tool_version_check(&min, Some(&path), VersionOutcome::Output("weird wrapper output".into()));
+        assert_eq!(check.status, HealthStatus::Info);
+        assert!(check.detail.contains("weird wrapper output"), "detail: {}", check.detail);
+    }
+
+    #[test]
+    fn tool_version_check_warns_on_timeout_and_error() {
+        let min = claude_min();
+        let path = std::path::PathBuf::from("/usr/local/bin/claude");
+        let timed_out = tool_version_check(&min, Some(&path), VersionOutcome::TimedOut);
+        assert_eq!(timed_out.status, HealthStatus::Warn);
+        let errored = tool_version_check(&min, Some(&path), VersionOutcome::Error("boom".into()));
+        assert_eq!(errored.status, HealthStatus::Warn);
+        assert!(errored.detail.contains("boom"), "detail: {}", errored.detail);
+    }
+
+    #[test]
+    fn version_upgrade_command_only_offers_brew_for_a_homebrew_git() {
+        assert_eq!(
+            version_upgrade_command("git", std::path::Path::new("/opt/homebrew/bin/git")),
+            Some("brew upgrade git".to_string())
+        );
+        assert_eq!(
+            version_upgrade_command("git", std::path::Path::new("/usr/local/bin/git")),
+            Some("brew upgrade git".to_string())
+        );
+        // Apple's Xcode-stub git and any other system git can't be upgraded that
+        // way, so no command is offered rather than a wrong one.
+        assert_eq!(version_upgrade_command("git", std::path::Path::new("/usr/bin/git")), None);
+    }
+
+    #[test]
+    fn version_upgrade_command_claude_updates_regardless_of_path_code_never_does() {
+        assert_eq!(
+            version_upgrade_command("claude", std::path::Path::new("/usr/bin/claude")),
+            Some("claude update".to_string())
+        );
+        assert_eq!(version_upgrade_command("code", std::path::Path::new("/opt/homebrew/bin/code")), None);
     }
 }
