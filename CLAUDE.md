@@ -18,6 +18,8 @@ The menu-bar tray icon is a **brain** icon (`backend/icons/tray.png`, a template
 
 This is enforced on both sides. Server-side, a branch ruleset on `main` requires a pull request and the two CI checks (**Backend (test + clippy)** and **Frontend (typecheck + tests)**) to pass; zero approving reviews are required, so a solo PR merges itself once CI is green, but until then `gh pr merge` fails with *"the base branch policy prohibits the merge"*. Locally, the committed `.githooks/pre-push` hook rejects any push to `main`; enable it once per clone with `git config core.hooksPath .githooks` (already set in the primary checkout; worktrees share it via the common git dir).
 
+**Claude must not commit, push, open a PR, or merge on its own initiative.** "Implement issue #N" or "implement this plan" means edit the files and verify them (build/test/lint) — stop there and report what changed for the user to review, without running `git commit`, `git push`, `gh pr create`, or `gh pr merge`. Only do those when the user's own message explicitly asks for that step (e.g. "commit this", "push it", "open a PR", "merge it") — even CI going green is not itself permission to merge.
+
 ## Feature reference in `docs/`
 
 The detailed how-it-works for each subsystem lives in `docs/`. **Read the relevant doc before changing that subsystem**, and update it when the behaviour changes — it is the source of truth for that feature. The decision sections below record only the decision and the invariants that tests enforce.
