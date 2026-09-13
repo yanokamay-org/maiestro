@@ -181,11 +181,16 @@ export function Settings() {
   // close, so what it fetched on mount can be stale by the time the window is
   // actually opened — most visibly right after first-run onboarding, which
   // writes `launch_at_login` seconds after this mounted, leaving the Preferences
-  // toggle showing the old value (#139). The backend announces each fresh open;
-  // re-read then, exactly as the popover refreshes on `popover-shown`.
-  // `loadAppSettings` re-seeds the autosave baseline, so the reload can't save
-  // itself back over the file.
-  useTauriListen("settings-shown", () => loadAppSettings());
+  // toggle showing the old value (#139). The same staleness hid a freshly
+  // created onboarding identity from the Identities list (#148): this mounted
+  // and fetched an empty list before onboarding registered one. The backend
+  // announces each fresh open; re-read then, exactly as the popover refreshes
+  // on `popover-shown`. `loadAppSettings` re-seeds the autosave baseline, so
+  // the reload can't save itself back over the file.
+  useTauriListen("settings-shown", () => {
+    loadAppSettings();
+    api.identitiesList().then(setKnownIdentities);
+  });
 
   const patchCred = useCallback((type_id: string, patch: Partial<CredState>) => {
     setCredStates((prev) => ({ ...prev, [type_id]: { ...prev[type_id], ...patch } }));
