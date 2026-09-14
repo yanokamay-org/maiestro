@@ -1594,6 +1594,24 @@ body {
   background-clip: padding-box;
 }
 
+/* Inline text-styled button that opens a doc/help URL via api.openUrl — used
+ * next to the GitHub token field in onboarding and in the identity's Settings
+ * detail, both pointing at the README's PAT setup guide. */
+.help-link {
+  align-self: flex-start;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.help-link:hover {
+  text-decoration: underline;
+}
+
 .cred-row {
   background: var(--surface);
   border: 1px solid var(--border);

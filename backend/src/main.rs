@@ -37,7 +37,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, WindowEvent,
 };
-use tauri_plugin_positioner::{Position, WindowExt};
 
 use plugin::{PluginRegistry, plugins_list_credential_types};
 use plugins::{GitHubPlugin, github_get_repo, github_list_issues, github_list_repos};
@@ -190,12 +189,17 @@ fn monitor_at(window: &tauri::WebviewWindow, x: i32, y: i32) -> Option<Monitor> 
 /// rather than by reading the window's live geometry back, which lags a cycle on
 /// macOS and made the placement toggle between opens.
 ///
-/// Falls back to the positioner's `move_window(TrayCenter)` when we have no
-/// cached tray rect yet (e.g. a single-instance relaunch before any tray click)
-/// or can't read the window size.
+/// Falls back to the screen's top-right corner — where the tray icon itself
+/// almost always lives on macOS — when we have no cached tray rect yet (e.g.
+/// onboarding finishing, or a single-instance relaunch, before the user has
+/// ever hovered/clicked the tray icon) or can't read the window size. This
+/// deliberately isn't the positioner plugin's own `move_window(TrayCenter)`:
+/// that panics ("Tray position not set") when *its* internal tray cache —
+/// populated only by `on_tray_event`, separate from our own
+/// `PopoverState.tray_rect` — is also empty, which is exactly the case here.
 fn position_popover(window: &tauri::WebviewWindow, tray: Option<(PhysicalPosition<f64>, PhysicalSize<f64>)>) {
     let (Some((tray_pos, tray_size)), Ok(win)) = (tray, window.outer_size()) else {
-        let _ = window.move_window(Position::TrayCenter);
+        position_top_right(window);
         return;
     };
     let (mut win_w, mut win_h) = (win.width as i32, win.height as i32);
@@ -240,7 +244,33 @@ fn position_popover(window: &tauri::WebviewWindow, tray: Option<(PhysicalPositio
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
-fn show_popover(app: &tauri::AppHandle) {
+/// Small on-screen margin (physical px) kept between the popover and the
+/// monitor's edge when there's no real tray rect to anchor to, matching the
+/// breathing room a tray-anchored placement gets naturally.
+const TOP_RIGHT_MARGIN: i32 = 8;
+
+/// Pin the window to the primary/current monitor's top-right corner —
+/// approximating where its tray icon lives — with no tray rect to anchor to.
+fn position_top_right(window: &tauri::WebviewWindow) {
+    let (Ok(win), Some(monitor)) = (
+        window.outer_size(),
+        window
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.current_monitor().ok().flatten()),
+    ) else {
+        return;
+    };
+    let mp = monitor.position();
+    let ms = monitor.size();
+    let (win_w, win_h) = (win.width as i32, win.height as i32);
+    let x = (mp.x + ms.width as i32 - win_w - TOP_RIGHT_MARGIN).max(mp.x);
+    let y = (mp.y + TOP_RIGHT_MARGIN).min((mp.y + ms.height as i32 - win_h).max(mp.y));
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+pub(crate) fn show_popover(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let tray = app
             .try_state::<PopoverState>()

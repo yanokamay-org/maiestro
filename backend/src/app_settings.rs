@@ -18,7 +18,15 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use tauri::utils::config::Color;
 use tauri_plugin_autostart::ManagerExt;
+
+/// Opaque native window-background colors matching `styles.css`'s `--bg`
+/// tokens (dark `rgba(28, 24, 38, 0.97)`, light `rgba(247, 246, 250, 0.98)`),
+/// used only to pre-color the onboarding window before `show()` — see
+/// `maybe_show_onboarding`.
+const DARK_BG: Color = Color(28, 24, 38, 255);
+const LIGHT_BG: Color = Color(247, 246, 250, 255);
 
 /// Persisted size of a window, in logical pixels. Restored on launch before the
 /// window is first shown, saved when the window hides (popover on blur, the
@@ -316,6 +324,29 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
     use tauri::Manager;
     match app.get_webview_window("onboarding") {
         Some(window) => {
+            // A window created hidden (`visible: false` in tauri.conf.json) has
+            // no painted content yet, so the instant it appears on screen it
+            // shows its *native* window/webview background — white by default —
+            // until our CSS finishes loading a frame or two later. That's the
+            // flash: not a theme mismatch, but nothing themed painted yet at
+            // all. `set_background_color` fixes the actual visible symptom by
+            // giving the window a themed backing color before `show()`, so
+            // there's nothing default-colored to flash. `set_theme` is kept
+            // alongside it for native chrome (scrollbars, form controls) and to
+            // make `window.theme()` itself reliable. Both read the *native*
+            // NSWindow appearance (`window.theme()`, correct even while
+            // hidden) rather than the app's `theme` setting, because onboarding
+            // only ever runs before the user could have set an explicit
+            // Light/Dark preference.
+            if let Ok(theme) = window.theme() {
+                let _ = window.set_theme(Some(theme));
+                let bg = if theme == tauri::Theme::Light {
+                    LIGHT_BG
+                } else {
+                    DARK_BG
+                };
+                let _ = window.set_background_color(Some(bg));
+            }
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -328,7 +359,11 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
 /// launch-at-login; new options extend the parameters here and in
 /// `onboarding_complete`. Failure-tolerant: a failed LaunchAgent write is logged
 /// but onboarding is still marked complete, so we don't re-run it on every launch
-/// (the Preferences panel remains the way to change any setting afterwards).
+/// (the Preferences panel remains the way to change any setting afterwards). Ends
+/// by popping open the menu-bar popover (`main.rs::show_popover`), so the user
+/// lands somewhere useful the moment the onboarding window goes away, instead of
+/// finishing onto an empty desktop. Called exactly once per real completion (see
+/// callers), so this never double-shows the popover.
 pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
     if let Err(e) = set_autolaunch(app, launch_at_login) {
         tracing::warn!(error = %e, "onboarding launch-at-login toggle failed");
@@ -341,6 +376,7 @@ pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
     }) {
         tracing::error!(error = %e, "failed to persist onboarding choices");
     }
+    crate::show_popover(app);
 }
 
 /// Finish onboarding from the dialog's "Get started" button, then dismiss the
