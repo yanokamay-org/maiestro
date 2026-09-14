@@ -18,7 +18,15 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use tauri::utils::config::Color;
 use tauri_plugin_autostart::ManagerExt;
+
+/// Opaque native window-background colors matching `styles.css`'s `--bg`
+/// tokens (dark `rgba(28, 24, 38, 0.97)`, light `rgba(247, 246, 250, 0.98)`),
+/// used only to pre-color the onboarding window before `show()` — see
+/// `maybe_show_onboarding`.
+const DARK_BG: Color = Color(28, 24, 38, 255);
+const LIGHT_BG: Color = Color(247, 246, 250, 255);
 
 /// Persisted size of a window, in logical pixels. Restored on launch before the
 /// window is first shown, saved when the window hides (popover on blur, the
@@ -316,20 +324,28 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
     use tauri::Manager;
     match app.get_webview_window("onboarding") {
         Some(window) => {
-            // Work around a WKWebView quirk where a window created hidden
-            // (`visible: false` in tauri.conf.json) doesn't propagate the real
-            // OS appearance to its `prefers-color-scheme` media query until the
-            // window actually appears on screen — our dark-baseline CSS briefly
-            // paints the wrong light "system" fallback right as the window
-            // shows, before the environment catches up a frame later.
-            // `window.theme()` reads the *native* NSWindow appearance, which is
-            // correct even while hidden; re-asserting it via `set_theme` right
-            // before `show()` forces the webview to sync immediately instead of
-            // lazily. Onboarding only ever runs before the user has set an
-            // explicit Light/Dark preference, so following the raw OS theme
-            // here (rather than the app's `theme` setting) is exactly right.
+            // A window created hidden (`visible: false` in tauri.conf.json) has
+            // no painted content yet, so the instant it appears on screen it
+            // shows its *native* window/webview background — white by default —
+            // until our CSS finishes loading a frame or two later. That's the
+            // flash: not a theme mismatch, but nothing themed painted yet at
+            // all. `set_background_color` fixes the actual visible symptom by
+            // giving the window a themed backing color before `show()`, so
+            // there's nothing default-colored to flash. `set_theme` is kept
+            // alongside it for native chrome (scrollbars, form controls) and to
+            // make `window.theme()` itself reliable. Both read the *native*
+            // NSWindow appearance (`window.theme()`, correct even while
+            // hidden) rather than the app's `theme` setting, because onboarding
+            // only ever runs before the user could have set an explicit
+            // Light/Dark preference.
             if let Ok(theme) = window.theme() {
                 let _ = window.set_theme(Some(theme));
+                let bg = if theme == tauri::Theme::Light {
+                    LIGHT_BG
+                } else {
+                    DARK_BG
+                };
+                let _ = window.set_background_color(Some(bg));
             }
             let _ = window.show();
             let _ = window.set_focus();
