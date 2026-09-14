@@ -316,6 +316,21 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
     use tauri::Manager;
     match app.get_webview_window("onboarding") {
         Some(window) => {
+            // Work around a WKWebView quirk where a window created hidden
+            // (`visible: false` in tauri.conf.json) doesn't propagate the real
+            // OS appearance to its `prefers-color-scheme` media query until the
+            // window actually appears on screen — our dark-baseline CSS briefly
+            // paints the wrong light "system" fallback right as the window
+            // shows, before the environment catches up a frame later.
+            // `window.theme()` reads the *native* NSWindow appearance, which is
+            // correct even while hidden; re-asserting it via `set_theme` right
+            // before `show()` forces the webview to sync immediately instead of
+            // lazily. Onboarding only ever runs before the user has set an
+            // explicit Light/Dark preference, so following the raw OS theme
+            // here (rather than the app's `theme` setting) is exactly right.
+            if let Ok(theme) = window.theme() {
+                let _ = window.set_theme(Some(theme));
+            }
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -328,7 +343,11 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
 /// launch-at-login; new options extend the parameters here and in
 /// `onboarding_complete`. Failure-tolerant: a failed LaunchAgent write is logged
 /// but onboarding is still marked complete, so we don't re-run it on every launch
-/// (the Preferences panel remains the way to change any setting afterwards).
+/// (the Preferences panel remains the way to change any setting afterwards). Ends
+/// by popping open the menu-bar popover (`main.rs::show_popover`), so the user
+/// lands somewhere useful the moment the onboarding window goes away, instead of
+/// finishing onto an empty desktop. Called exactly once per real completion (see
+/// callers), so this never double-shows the popover.
 pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
     if let Err(e) = set_autolaunch(app, launch_at_login) {
         tracing::warn!(error = %e, "onboarding launch-at-login toggle failed");
@@ -341,6 +360,7 @@ pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
     }) {
         tracing::error!(error = %e, "failed to persist onboarding choices");
     }
+    crate::show_popover(app);
 }
 
 /// Finish onboarding from the dialog's "Get started" button, then dismiss the

@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { GITHUB_PAT_SETUP_URL } from "./components/CredRows";
 import LogoIcon from "./icons/logo.svg?react";
 
 type Step = 0 | 1;
@@ -117,6 +118,13 @@ export function Onboarding() {
                 for the git/GitHub auth inside a launched session. Leave blank to skip; the identity
                 above still won't be created until a token is added, here or later in Settings.
               </span>
+              <button
+                type="button"
+                className="help-link"
+                onClick={() => { void api.openUrl(GITHUB_PAT_SETUP_URL).catch(() => {}); }}
+              >
+                How to create a token →
+              </button>
             </label>
             {identityError && <p className="cred-error">{identityError}</p>}
           </div>

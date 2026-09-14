@@ -117,14 +117,14 @@ recommended kind:
 
 - **Repository access** — *Only select repositories*, and pick every repo you
   want mAIestro to track (or *All repositories* if you prefer).
-- **Repository permissions** — these four, all **Read and write**:
+- **Repository permissions** — these four:
 
-  | Permission | Used for |
-  | --- | --- |
-  | **Metadata** (required) | Reading the repo itself |
-  | **Contents** | How mAIestro derives whether the token can push |
-  | **Issues** | Listing and creating issues, assigning, commenting |
-  | **Pull requests** | Creating, reading, and merging PRs; the checks dot |
+  | Permission | Access | Used for |
+  | --- | --- | --- |
+  | **Metadata** (required) | Read-only (no write option) | Reading the repo itself |
+  | **Contents** | Read and write | How mAIestro derives whether the token can push |
+  | **Issues** | Read and write | Listing and creating issues, assigning, commenting |
+  | **Pull requests** | Read and write | Creating, reading, and merging PRs; the checks dot |
 
   Add **Workflows** if PRs will touch `.github/workflows/`, and **Merge
   queues** on a repo that merges through a queue — GitHub refuses those merges
