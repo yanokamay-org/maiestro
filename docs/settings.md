@@ -80,7 +80,7 @@ Like per-repo settings, the file format has a **hand-written JSON Schema** (`bac
 
 ## About (version + build info)
 
-The **Preferences** panel ends with a read-only **About** block showing the running app's version, whether it is a release or a development build, its build date, the short git SHA it was built from, and a **Release notes** button that opens `https://github.com/emisch0/maiestro/releases/tag/v<version>` in the browser (via `links::open_url`). Its text is selectable (the `.panel` shell sets `user-select: none`, so `.about-lines` opts back in) so a version can be pasted into a bug report.
+The **Preferences** panel ends with a read-only **About** block showing the running app's version, whether it is a release or a development build, its build date, the short git SHA it was built from, and a **Release notes** button that opens `https://github.com/yanokamay-org/maiestro/releases/tag/v<version>` in the browser (via `links::open_url`). Its text is selectable (the `.panel` shell sets `user-select: none`, so `.about-lines` opts back in) so a version can be pasted into a bug report.
 
 It is **not a setting.** None of it lives in `~/.maiestro/settings.json` or `app-settings.schema.json` — adding it there would fail the `schema_matches_struct` drift guard and the form's autosave would try to write it back. It is served by its own command, `about::app_version` (`backend/src/about.rs`), and rendered as plain markup after the JSON Forms block (`frontend/src/components/AboutSection.tsx`), so a failed fetch hides the block instead of blocking Preferences.
 

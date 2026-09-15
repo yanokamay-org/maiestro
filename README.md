@@ -36,7 +36,7 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 ### MacOS
 
 **1. Install mAIestro.** Download the latest `.dmg` from the
-[Releases page](https://github.com/emisch0/maiestro/releases) and drag
+[Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro** to Applications.
 
 **2. Install Claude Code.** mAIestro launches `claude` into every workspace it

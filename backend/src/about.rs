@@ -12,7 +12,7 @@
 use serde::Serialize;
 
 /// The GitHub repo the release notes link points at.
-const REPO_URL: &str = "https://github.com/emisch0/maiestro";
+const REPO_URL: &str = "https://github.com/yanokamay-org/maiestro";
 
 /// Version and build metadata for the running app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -59,7 +59,7 @@ mod tests {
     fn release_url_points_at_the_version_tag() {
         assert_eq!(
             release_url("0.2.3"),
-            "https://github.com/emisch0/maiestro/releases/tag/v0.2.3"
+            "https://github.com/yanokamay-org/maiestro/releases/tag/v0.2.3"
         );
     }
 

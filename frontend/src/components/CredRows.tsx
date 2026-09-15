@@ -3,7 +3,7 @@ import { api, CredentialTypeDto } from "../api";
 // Anchor into the README's "GitHub token" section (its permissions table and
 // fine-grained-vs-classic guidance), shared by the onboarding wizard and this
 // Settings row so both point at the one place that documents it.
-export const GITHUB_PAT_SETUP_URL = "https://github.com/emisch0/maiestro#github-token";
+export const GITHUB_PAT_SETUP_URL = "https://github.com/yanokamay-org/maiestro#github-token";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "clearing" | "error";
 
