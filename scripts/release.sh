@@ -401,10 +401,34 @@ PY
   status="${resp##*$'\n'}"; data="${resp%$'\n'*}"
   [[ "$status" == "200" ]] || die "listing assets failed (HTTP $status): $data"
 
-  if printf '%s' "$data" | NAME="$dmg_name" python3 -c \
-      'import json,os,sys;sys.exit(0 if any(a["name"]==os.environ["NAME"] for a in json.load(sys.stdin)) else 1)'; then
+  # Match on name *and* state. A failed upload (e.g. a transient HTTP 500)
+  # leaves the asset record behind in state "starter" — it holds no data and
+  # never appears in the release's download list, but it is still returned
+  # here. Treating that placeholder as "already uploaded" would skip the real
+  # upload and then publish an assetless release, which immutability makes
+  # permanent. So only state "uploaded" counts; any other state is a corpse to
+  # delete (the release is still a draft here, so deleting is allowed) before
+  # re-uploading under the same name.
+  local existing_id existing_state
+  existing_state="$(printf '%s' "$data" | NAME="$dmg_name" python3 -c '
+import json, os, sys
+name = os.environ["NAME"]
+for a in json.load(sys.stdin):
+    if a["name"] == name:
+        print(a["id"], a.get("state", ""))
+        break
+')"
+  existing_id="${existing_state%% *}"; existing_state="${existing_state#* }"
+
+  if [[ "$existing_state" == "uploaded" ]]; then
     echo "Asset $dmg_name already uploaded ✓"
   else
+    if [[ -n "$existing_id" ]]; then
+      echo "Removing incomplete asset $dmg_name (state: ${existing_state:-unknown})"
+      resp="$(github_request DELETE "$api/repos/$owner/$repo/releases/assets/$existing_id")"
+      status="${resp##*$'\n'}"; data="${resp%$'\n'*}"
+      [[ "$status" == "204" ]] || die "removing stale asset $dmg_name failed (HTTP $status): $data"
+    fi
     # upload_url is templated: ".../assets{?name,label}" — strip the template.
     local upload_base="${upload_url%%\{*}"
     echo "Uploading $dmg_name"
@@ -426,7 +450,24 @@ PY
 
   # 4. Publish. The draft becomes a real release only now, with the .dmg already
   # attached — see the immutable-releases note in step 2.
+  #
+  # Re-read the assets and refuse to publish unless the .dmg is really there in
+  # state "uploaded". Publishing is the irreversible step: immutability freezes
+  # whatever is attached at that moment, so an assetless release can never be
+  # repaired, only deleted and re-cut. Verify against the API rather than trust
+  # that step 3 did its job.
   if [[ "$is_draft" == "1" ]]; then
+    resp="$(github_request GET "$api/repos/$owner/$repo/releases/$release_id/assets")"
+    status="${resp##*$'\n'}"; data="${resp%$'\n'*}"
+    [[ "$status" == "200" ]] || die "re-checking assets failed (HTTP $status): $data"
+    printf '%s' "$data" | NAME="$dmg_name" python3 -c '
+import json, os, sys
+name = os.environ["NAME"]
+sys.exit(0 if any(a["name"] == name and a.get("state") == "uploaded"
+                  for a in json.load(sys.stdin)) else 1)' \
+      || die "refusing to publish $tag: $dmg_name is not attached in state 'uploaded'." \
+             $'\n''Publishing now would freeze an assetless release permanently.'
+
     echo "Publishing release $tag"
     local tmp_pub; tmp_pub="$(mktemp)"
     printf '%s' '{"draft": false}' > "$tmp_pub"
