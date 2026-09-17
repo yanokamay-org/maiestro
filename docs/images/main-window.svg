@@ -121,7 +121,7 @@
     73 -15 75 0 3 -14 20 -31 40 -27 30 -37 35 -74 35 -32 0 -52 -7 -73 -25z"/>
     </g>
   </g>
-  <text x="50" y="36" font-size="15" font-weight="700" fill="#ece9f2">m<tspan fill="#facc15">AI</tspan>estro</text>
+  <text x="50" y="36" font-size="15" font-weight="700" fill="#ece9f2">m<tspan fill="#facc15">AI</tspan>estro Code</text>
   <!-- eye (show hidden) -->
   <g stroke="#a39db5" fill="none" stroke-width="1.4">
     <path d="M622 29 q8 -7 16 0 q-8 7 -16 0 z"/>

@@ -1,4 +1,4 @@
-//! Claude Code hooks that give mAIestro live per-session status.
+//! Claude Code hooks that give mAIestro Code live per-session status.
 //!
 //! At worktree creation we write hooks into the worktree's
 //! `.claude/settings.local.json` (the personal, gitignored layer that merges with
@@ -45,11 +45,11 @@ pub async fn write_claude_hooks(work_dir: &Path, ws_id: &str) -> Result<(), Stri
     Ok(())
 }
 
-/// Build mAIestro's status-hook entries (event name → hook group) for a worktree,
+/// Build mAIestro Code's status-hook entries (event name → hook group) for a worktree,
 /// using `bin` as the helper binary path. Shared by spawn (which writes them) and
 /// startup reconcile (which rewrites them at the current binary). The commands run
 /// through a shell, so the binary path (may contain spaces, e.g. inside
-/// "/Applications/.../mAIestro.app") and the ws id are single-quoted.
+/// "/Applications/.../mAIestro Code.app") and the ws id are single-quoted.
 fn maiestro_hook_groups(bin: &Path, ws_id: &str) -> Vec<(&'static str, serde_json::Value)> {
     let bin_q = shell_quote(&bin.to_string_lossy());
     let ws_q = shell_quote(ws_id);
@@ -94,7 +94,7 @@ fn maiestro_hook_groups(bin: &Path, ws_id: &str) -> Vec<(&'static str, serde_jso
     ]
 }
 
-/// True when `command` is one of mAIestro's status hooks for `ws_id` — matched by
+/// True when `command` is one of mAIestro Code's status hooks for `ws_id` — matched by
 /// the trailing `--workspace '<ws-id>'` we always emit, so unrelated hooks (and
 /// other workspaces' hooks) in the same file are left untouched.
 fn is_maiestro_hook(command: &str, ws_id: &str) -> bool {
@@ -117,7 +117,7 @@ fn has_maiestro_hooks(root: &serde_json::Value, ws_id: &str) -> bool {
     })
 }
 
-/// Merge mAIestro's hooks into a parsed settings `root`: for each event, drop any
+/// Merge mAIestro Code's hooks into a parsed settings `root`: for each event, drop any
 /// existing entries that are ours (stale paths from a prior spawner), then append
 /// a fresh group built from `bin`. Every other hook and setting is preserved.
 fn merge_hooks(mut root: serde_json::Value, bin: &Path, ws_id: &str) -> serde_json::Value {
@@ -179,7 +179,7 @@ pub fn reconcile_all_session_hooks() {
     }
 }
 
-/// Append mAIestro's generated files to the worktree's shared git exclude file so
+/// Append mAIestro Code's generated files to the worktree's shared git exclude file so
 /// they don't show up as untracked changes (which would trip teardown's
 /// `git status --porcelain` dirty check before Claude has run / in repos that
 /// don't already ignore them). Idempotent and best-effort.
@@ -211,7 +211,7 @@ async fn exclude_generated_files(work_dir: &Path) {
     if !body.is_empty() && !body.ends_with('\n') {
         body.push('\n');
     }
-    body.push_str("# Added by mAIestro\n");
+    body.push_str("# Added by mAIestro Code\n");
     for pat in to_add {
         body.push_str(pat);
         body.push('\n');
@@ -239,7 +239,7 @@ mod tests {
             "hooks": [{ "type": "command", "command": "'/x/maiestro' hook idle --workspace '99-other'" }]
         }));
 
-        let new_bin = Path::new("/Applications/mAIestro.app/Contents/MacOS/maiestro");
+        let new_bin = Path::new("/Applications/mAIestro Code.app/Contents/MacOS/maiestro");
         let merged = merge_hooks(root, new_bin, ws);
 
         let cmds: Vec<&str> = merged["hooks"]["Stop"]
@@ -250,7 +250,7 @@ mod tests {
             .collect();
 
         // Our stale entry was rewritten to the new binary; the old path is gone.
-        assert!(cmds.iter().any(|c| c.contains("/Applications/mAIestro.app") && c.contains("--workspace '35-status-hooks-fix'")));
+        assert!(cmds.iter().any(|c| c.contains("/Applications/mAIestro Code.app") && c.contains("--workspace '35-status-hooks-fix'")));
         assert!(!cmds.iter().any(|c| c.contains("/old/work-8")));
         // Exactly one of our entries for this ws remains (no duplication).
         assert_eq!(cmds.iter().filter(|c| is_maiestro_hook(c, ws)).count(), 1);

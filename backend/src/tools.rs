@@ -1,13 +1,13 @@
-//! Resolving the external CLIs mAIestro invokes **directly** — `claude`, `git`,
+//! Resolving the external CLIs mAIestro Code invokes **directly** — `claude`, `git`,
 //! and the VS Code `code` CLI — robustly, even when the app is launched from the
-//! packaged bundle (`/Applications/mAIestro.app/…`).
+//! packaged bundle (`/Applications/mAIestro Code.app/…`).
 //!
 //! The problem: at login, macOS Launch Services starts the app with a **minimal
 //! `$PATH`** (`/usr/bin:/bin:/usr/sbin:/sbin`) and no shell profile sourced. A
 //! bare `Command::new("claude")` (or `git`, or `code`) then fails to resolve, or
 //! resolves to the wrong binary (e.g. the `/usr/bin/git` Xcode stub instead of a
 //! Homebrew git). This module centralizes resolution so every direct invocation
-//! shares one, correct answer. Tools mAIestro launches *indirectly* — `open`,
+//! shares one, correct answer. Tools mAIestro Code launches *indirectly* — `open`,
 //! `osascript`, `lsof` (system binaries always on the minimal PATH), and the
 //! user-facing session, which inherits the full ambient env — are not affected
 //! and don't go through here.
@@ -240,7 +240,7 @@ pub fn tokio_command(name: &str) -> tokio::process::Command {
 }
 
 /// Spawn a fire-and-forget child (e.g. `open`, `code`) and reap it in a detached
-/// thread. mAIestro is a weeks-running menu-bar process, so a child that's spawned
+/// thread. mAIestro Code is a weeks-running menu-bar process, so a child that's spawned
 /// and never `wait()`ed leaves a zombie for the life of the app; each launched
 /// URL/editor/Finder-reveal would accumulate one. The detached `wait` collects the
 /// exit status without blocking the caller — the child's actual work (opening the

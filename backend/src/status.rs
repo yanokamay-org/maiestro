@@ -1,7 +1,7 @@
 //! Per-session live status: **busy / needs-you / idle**.
 //!
-//! mAIestro launches `claude` into VS Code/terminal and no longer owns its
-//! stdio (see CLAUDE.md → "mAIestro launches sessions; it does not host them"),
+//! mAIestro Code launches `claude` into VS Code/terminal and no longer owns its
+//! stdio (see CLAUDE.md → "mAIestro Code launches sessions; it does not host them"),
 //! so it can't read working/waiting state from the stream. Instead, each spawned
 //! worktree gets Claude Code hooks (written by `spawn.rs`) that invoke this very
 //! binary as `maiestro hook <state> --workspace <ws-id>`. The hook reads Claude's
@@ -429,7 +429,7 @@ pub fn clear_session_error(workspace: String) {
 }
 
 /// Remove status files with no matching session record (e.g. left over from a
-/// session torn down while mAIestro wasn't running). Run once at startup.
+/// session torn down while mAIestro Code wasn't running). Run once at startup.
 pub fn sweep_stale() {
     let live: std::collections::HashSet<String> =
         crate::sessions::load_all().into_iter().map(|s| s.id).collect();
@@ -474,7 +474,7 @@ pub fn reconcile_stale_creating() {
         tracing::warn!(session = %ws, "found a session stuck in `creating` at startup; surfacing as a spawn error");
         write_spawn_error(
             &ws,
-            "Spawn was interrupted before it finished (mAIestro quit or crashed mid-spawn). \
+            "Spawn was interrupted before it finished (mAIestro Code quit or crashed mid-spawn). \
              Tear this workspace down and start it again.",
         );
     }

@@ -1,4 +1,4 @@
-//! The instructions mAIestro sends to Claude, and per-repo override resolution.
+//! The instructions mAIestro Code sends to Claude, and per-repo override resolution.
 //!
 //! Each AI prompt is assembled as `<instruction> + <runtime context>`. The
 //! **instruction** is the user-facing, per-repo-configurable part — the schema
@@ -39,7 +39,7 @@ pub fn draft_pr(p: &PromptOverrides) -> String {
 
 /// The effective model (a `claude --model` tier alias) for this repo's headless
 /// drafting calls — the repo's `prompt_model` override, or the schema default
-/// (`haiku`) when unset/empty. Governs only mAIestro's own `claude -p` prompts,
+/// (`haiku`) when unset/empty. Governs only mAIestro Code's own `claude -p` prompts,
 /// never the launched worktree session.
 pub fn model(prompt_model: &Option<String>) -> String {
     pick(prompt_model, "/properties/prompt_model/default")

@@ -31,7 +31,7 @@
     "tool_paths": {
       "type": ["object", "null"],
       "title": "ToolPaths",
-      "description": "Explicit paths for the CLIs mAIestro runs itself. Leave a field empty to auto-detect (login-shell PATH, then known install locations); set one to pin a specific binary — useful when the app, launched from /Applications with a minimal PATH, can't find a tool.",
+      "description": "Explicit paths for the CLIs mAIestro Code runs itself. Leave a field empty to auto-detect (login-shell PATH, then known install locations); set one to pin a specific binary — useful when the app, launched from /Applications with a minimal PATH, can't find a tool.",
       "properties": {
         "claude": {
           "type": ["string", "null"],
@@ -54,7 +54,7 @@
     },
     "launch_at_login": {
       "type": ["boolean", "null"],
-      "description": "Whether to launch mAIestro automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the Preferences panel. null/absent = false."
+      "description": "Whether to launch mAIestro Code automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the Preferences panel. null/absent = false."
     },
     "onboarding_completed": {
       "type": ["boolean", "null"],

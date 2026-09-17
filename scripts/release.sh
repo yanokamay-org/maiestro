@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Release pipeline for mAIestro. Three phases, each independently runnable and
+# Release pipeline for mAIestro Code. Three phases, each independently runnable and
 # idempotent so a partially-failed release can be resumed by re-running it:
 #
 #   release.sh bump <patch|minor|major|X.Y.Z>
@@ -229,7 +229,7 @@ cmd_build() {
   # Without it the About panel labels the version "X.Y.Z+dev" — see #126.
   MAIESTRO_RELEASE=1 pnpm tauri build
 
-  local app="backend/target/release/bundle/macos/mAIestro.app"
+  local app="backend/target/release/bundle/macos/mAIestro Code.app"
   echo
   echo "Verifying signature…"
   codesign --verify --deep --strict --verbose=2 "$app"
@@ -250,7 +250,7 @@ cmd_build() {
   # inside it. publish enforces `stapler validate <dmg>`, so do it here.
   local version dmg dmgs
   version="$(read_version)"
-  dmgs=(backend/target/release/bundle/dmg/mAIestro_"${version}"_*.dmg)
+  dmgs=(backend/target/release/bundle/dmg/"mAIestro Code_${version}_"*.dmg)
   dmg="${dmgs[0]}"
   echo
   if [[ -f "$dmg" ]]; then
@@ -314,7 +314,7 @@ cmd_publish() {
     || die "could not parse owner/repo from origin: $origin"
 
   # Locate the signed dmg and confirm it is notarized before publishing.
-  local dmg dmgs=(backend/target/release/bundle/dmg/mAIestro_"${version}"_*.dmg)
+  local dmg dmgs=(backend/target/release/bundle/dmg/"mAIestro Code_${version}_"*.dmg)
   dmg="${dmgs[0]}"
   [[ -f "$dmg" ]] || die "no .dmg for $version — run 'scripts/release.sh build' first"
   xcrun stapler validate "$dmg" >/dev/null 2>&1 \
@@ -394,7 +394,9 @@ PY
   fi
 
   # 3. Asset. Skip if a same-named asset is already attached.
-  local dmg_name; dmg_name="$(basename "$dmg")"
+  # The bundled file is "mAIestro Code_<ver>_<arch>.dmg"; the space isn't
+  # URL-safe and GitHub would rename it anyway, so upload it hyphenated.
+  local dmg_name; dmg_name="$(basename "$dmg")"; dmg_name="${dmg_name// /-}"
   resp="$(github_request GET "$api/repos/$owner/$repo/releases/$release_id/assets")"
   status="${resp##*$'\n'}"; data="${resp%$'\n'*}"
   [[ "$status" == "200" ]] || die "listing assets failed (HTTP $status): $data"

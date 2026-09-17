@@ -441,7 +441,7 @@ fn effective_worktree_prefix(configured: Option<&str>) -> String {
 
 /// Run a repo's post-spawn commands in the freshly-created worktree, in order.
 /// Each runs via the user's login shell (`$SHELL -lc`) so PATH and tool managers
-/// (nvm, pnpm, asdf, …) are available — mAIestro's own environment is minimal and
+/// (nvm, pnpm, asdf, …) are available — mAIestro Code's own environment is minimal and
 /// not sourced from a profile. Stops at the first command that fails or times
 /// out; returns a warning per problem (the worktree is left in place either way,
 /// never torn down). A blank command is skipped.
@@ -663,7 +663,7 @@ pub enum TeardownOutcome {
     /// VS Code still has the worktree open and we couldn't close it (no
     /// Accessibility grant, or the close didn't take). `message` explains the
     /// situation; `accessibility` is true when granting Accessibility would let
-    /// mAIestro close the window itself, so the UI can offer that shortcut.
+    /// mAIestro Code close the window itself, so the UI can offer that shortcut.
     BlockedByEditor { message: String, accessibility: bool },
 }
 
@@ -763,7 +763,7 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
                                 message:
                                     "I couldn't tear down because the Visual Studio Code window \
                                      is still open.\n\nYou have two options: close the window \
-                                     yourself, or enable Accessibility for mAIestro so it can \
+                                     yourself, or enable Accessibility for mAIestro Code so it can \
                                      close the window for you."
                                         .to_string(),
                                 accessibility: true,

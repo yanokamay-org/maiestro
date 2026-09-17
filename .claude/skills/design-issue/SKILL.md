@@ -16,7 +16,7 @@ The repo is the current working directory's GitHub remote.
 
 2. **Investigate before designing.** A plan written without reading the code becomes generic and wrong. Spend tool calls on:
    - `CLAUDE.md` for architecture, conventions, and the recorded design decisions, and `docs/` for the per-feature reference (settings, health check, session status, theming, tool resolution).
-   - The files most likely to change. mAIestro is split into `backend/` (Rust/Tauri) and `frontend/` (web) — read enough of both to know exact paths and the surrounding patterns.
+   - The files most likely to change. mAIestro Code is split into `backend/` (Rust/Tauri) and `frontend/` (web) — read enough of both to know exact paths and the surrounding patterns.
    - Similar features that already exist in the repo — copy their shape rather than inventing.
    Do not skip this step even when the issue feels obvious. The investigation is what makes the plan useful.
 

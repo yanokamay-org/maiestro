@@ -1,14 +1,14 @@
-# mAIestro
+# mAIestro Code
 
-## Why mAIestro
+## Why mAIestro Code
 
 Getting real leverage out of AI coding means running **several agent sessions
 in parallel**. The bottleneck stops being any single session and becomes *you*: the
-constant context switching between them. That's what mAIestro exists to solve.
-mAIestro colors and launches each session, and displays the session status highlighting
+constant context switching between them. That's what mAIestro Code exists to solve.
+mAIestro Code colors and launches each session, and displays the session status highlighting
 which sessions need attention.
 
-mAIestro is deliberately **not** another place to chat with an agent. It
+mAIestro Code is deliberately **not** another place to chat with an agent. It
 doesn't get in the way of your session interactions — the conversation still
 happens in your editor or terminal.
 
@@ -35,11 +35,11 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 
 ### MacOS
 
-**1. Install mAIestro.** Download the latest `.dmg` from the
+**1. Install mAIestro Code.** Download the latest `.dmg` from the
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
-**mAIestro** to Applications.
+**mAIestro Code** to Applications.
 
-**2. Install Claude Code.** mAIestro launches `claude` into every workspace it
+**2. Install Claude Code.** mAIestro Code launches `claude` into every workspace it
 creates, so it has to be installed and logged in first. Either installer works:
 
 ```bash
@@ -55,13 +55,13 @@ claude             # log in on first run; /login inside a session re-runs it
 ```
 
 Claude Code needs a Pro, Max, Team, Enterprise, or Console account; the free
-Claude.ai plan does not include it. mAIestro stores no API key of its own —
+Claude.ai plan does not include it. mAIestro Code stores no API key of its own —
 sessions run under your `claude` login. See the
 [Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
 misbehaves, or run `claude doctor`.
 
 **3. Set up git and GitHub for your sessions.** Spawned sessions push branches
-and fetch under your *ambient* git auth, not through mAIestro. Make sure `git`
+and fetch under your *ambient* git auth, not through mAIestro Code. Make sure `git`
 is there (`git --version` prompts to install the Xcode Command Line Tools if it
 isn't), then authenticate — the GitHub CLI is the easiest way, since
 `gh auth login` also sets up git's credential helper:
@@ -71,7 +71,7 @@ brew install gh
 gh auth login      # choose HTTPS and "authenticate Git with your credentials"
 ```
 
-mAIestro itself never shells out to `gh` — its own API calls use the token you
+mAIestro Code itself never shells out to `gh` — its own API calls use the token you
 save in [GitHub token](#github-token) below. `gh auth login` is for the git
 operations that happen *inside* a spawned session.
 
@@ -85,7 +85,7 @@ brew install --cask font-jetbrains-mono-nerd-font
 
 ### Other Platforms
 
-mAIestro is not yet available on other platforms, but it is designed to support multiple OS, AI agents, etc. Please submit a github issue to request more platforms.
+mAIestro Code is not yet available on other platforms, but it is designed to support multiple OS, AI agents, etc. Please submit a github issue to request more platforms.
 
 ## Quick start
 
@@ -102,7 +102,7 @@ mAIestro is not yet available on other platforms, but it is designed to support 
    clone, an unresolvable `claude`, or a token without push access *before*
    they break a spawn.
 5. Back in the popover, the repo lists its open issues. Hit **Spawn Work** on
-   one — mAIestro creates the worktree, copies your env files, runs your
+   one — mAIestro Code creates the worktree, copies your env files, runs your
    post-spawn commands, and opens the editor with Claude working the issue.
    Or write your own idea and let Claude draft the issue first.
 6. When the work is ready, create the PR from the workspace row (Claude drafts
@@ -110,19 +110,19 @@ mAIestro is not yet available on other platforms, but it is designed to support 
 
 ### GitHub token
 
-mAIestro talks to the GitHub REST API directly with a token you store per
+mAIestro Code talks to the GitHub REST API directly with a token you store per
 identity. A **fine-grained** personal access token
 ([create one](https://github.com/settings/personal-access-tokens/new)) is the
 recommended kind:
 
 - **Repository access** — *Only select repositories*, and pick every repo you
-  want mAIestro to track (or *All repositories* if you prefer).
+  want mAIestro Code to track (or *All repositories* if you prefer).
 - **Repository permissions** — these four:
 
   | Permission | Access | Used for |
   | --- | --- | --- |
   | **Metadata** (required) | Read-only (no write option) | Reading the repo itself |
-  | **Contents** | Read and write | How mAIestro derives whether the token can push |
+  | **Contents** | Read and write | How mAIestro Code derives whether the token can push |
   | **Issues** | Read and write | Listing and creating issues, assigning, commenting |
   | **Pull requests** | Read and write | Creating, reading, and merging PRs; the checks dot |
 
@@ -136,7 +136,7 @@ recommended kind:
 A **classic** token works too — it needs the `repo` scope (`public_repo` is
 enough for a public repo).
 
-Whichever kind you use, mAIestro never injects it into a spawned session;
+Whichever kind you use, mAIestro Code never injects it into a spawned session;
 sessions push and fetch under your ambient git auth from `gh auth login`. The
 health check below verifies the token without ever creating a throwaway issue
 or PR to test it.
@@ -155,7 +155,7 @@ prerequisites in one pass and streams the results:
   reported separately.
 - **GitHub token & permissions** — the token is valid, the repo is readable,
   and the token can push. This is derived from the scopes and permissions
-  GitHub reports; mAIestro never creates a throwaway issue or PR to test.
+  GitHub reports; mAIestro Code never creates a throwaway issue or PR to test.
 - **Configured env files exist** and **Terminal font installed** — advisory
   warnings, not failures.
 
@@ -167,7 +167,7 @@ with a copy-pasteable fix.
 An annotated tour of the popover (illustrative diagram, not a screenshot):
 
 <p align="center">
-  <img src="docs/images/main-window.svg" width="680" alt="Annotated diagram of the mAIestro popover: header, repo groups, lifecycle zones, workspace rows with status pills, and the per-workspace command strip">
+  <img src="docs/images/main-window.svg" width="680" alt="Annotated diagram of the mAIestro Code popover: header, repo groups, lifecycle zones, workspace rows with status pills, and the per-workspace command strip">
 </p>
 
 1. **Show-hidden toggle and Settings** — the eye reveals hidden/snoozed repos
@@ -228,12 +228,12 @@ Per-repo settings cover the local clone path (`cloned_repo_dir`), where
 worktrees are created (`worktree_prefix`), `.env` files to copy into each new
 worktree (`env_files`), shell commands to run after a worktree is created
 (`post_spawn_commands`, e.g. `pnpm install`), and overrides for the prompts
-mAIestro sends Claude when drafting issues, labels, and PRs (`prompts`).
+mAIestro Code sends Claude when drafting issues, labels, and PRs (`prompts`).
 
 The format is specified by a JSON Schema at
 [`backend/schemas/repo-settings.schema.json`](backend/schemas/repo-settings.schema.json)
 (bundled with the app at
-`/Applications/mAIestro.app/Contents/Resources/schemas/repo-settings.schema.json`).
+`/Applications/mAIestro Code.app/Contents/Resources/schemas/repo-settings.schema.json`).
 Point a `$schema` key at it for autocomplete when hand-editing.
 
 Logs are written to `~/Library/Logs/com.maiestro.app/lYYYYMM/maiestro-YYYYMMDD.log`
@@ -314,11 +314,11 @@ per-feature reference (settings, health check, session status, theming, tool
 resolution) in [`docs/`](docs/) — those are the source of truth; the short
 version:
 
-- **mAIestro launches sessions, it doesn't host them.** Starting work opens a
+- **mAIestro Code launches sessions, it doesn't host them.** Starting work opens a
   real VS Code window or terminal running `claude`; the app never owns the
   conversation or its stdio.
 - **Session status comes from Claude Code hooks.** Spawning writes hooks into
-  the worktree's `.claude/settings.local.json` that call the mAIestro binary,
+  the worktree's `.claude/settings.local.json` that call the mAIestro Code binary,
   which writes status files the app watches.
 - **GitHub via the REST API, never `gh`.** The app talks to GitHub directly
   with per-identity tokens read from the Keychain at call time.
@@ -326,8 +326,8 @@ version:
   human-editable configuration; token values never touch disk.
 - **Launched sessions get your ambient environment.** Launches go through
   Launch Services / your login shell, so sessions inherit your PATH, git auth,
-  and `claude` login — mAIestro injects nothing.
+  and `claude` login — mAIestro Code injects nothing.
 
 ## License
 
-mAIestro is released under the [MIT License](LICENSE).
+mAIestro Code is released under the [MIT License](LICENSE).

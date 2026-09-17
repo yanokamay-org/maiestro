@@ -104,7 +104,7 @@ async fn change_summary(work_dir: &Path, base: &str) -> String {
 }
 
 /// Create a draft pull request for a session's branch, with a Claude-drafted
-/// title and description. Pushes the branch to origin first (mAIestro's own
+/// title and description. Pushes the branch to origin first (mAIestro Code's own
 /// local-git op, like `git worktree add` — the launched session's own pushes are
 /// separate), reuses an already-open PR instead of duplicating, and links the PR
 /// to the originating issue with `Closes #N`.

@@ -9,7 +9,7 @@ pub struct CredentialTypeInfo {
     pub description: &'static str,
 }
 
-/// A plugin contributes one or more credential types it owns. (mAIestro does not
+/// A plugin contributes one or more credential types it owns. (mAIestro Code does not
 /// inject these into launched sessions — see the architecture notes in CLAUDE.md
 /// on ambient environment — so a plugin is currently just a credential-type
 /// declaration consumed by `plugins_list_credential_types`.)

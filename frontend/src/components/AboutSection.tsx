@@ -1,5 +1,5 @@
 // Read-only "About" block at the bottom of the Preferences panel (issue #126):
-// which version of mAIestro is running, when it was built, and a link out to
+// which version of mAIestro Code is running, when it was built, and a link out to
 // that version's release notes on GitHub.
 //
 // Not part of the Preferences JSON Forms — none of this is persisted settings
@@ -19,7 +19,7 @@ export function AboutSection({ info }: { info: AppVersion }) {
       <div className="about-row">
         <div className="about-lines">
           <p className="about-version">
-            m<span className="ai">AI</span>estro {label}
+            m<span className="ai">AI</span>estro Code {label}
             {info.dev_build && <span className="about-dev-badge">dev build</span>}
           </p>
           <p className="session-hint">

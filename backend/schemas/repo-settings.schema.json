@@ -15,7 +15,7 @@
     },
     "cloned_repo_dir": {
       "type": ["string", "null"],
-      "description": "Absolute path to the local cloned repo directory (the primary checkout mAIestro creates worktrees from)."
+      "description": "Absolute path to the local cloned repo directory (the primary checkout mAIestro Code creates worktrees from)."
     },
     "worktree_prefix": {
       "type": ["string", "null"],
@@ -36,7 +36,7 @@
     "prompt_model": {
       "type": ["string", "null"],
       "default": "haiku",
-      "description": "Which Claude model runs mAIestro's own programmatic prompts (draft_issue, short_label, draft_pr) via the headless `claude -p` calls. null/empty = the default (`haiku`). Passed verbatim to `claude --model`, so any value that flag accepts works — a tier alias (`haiku`, `sonnet`, `opus`, `fable`) or a full model id (`claude-haiku-4-5`). An alias tracks the latest model in that tier, so `haiku` (the default) always resolves to the current fastest tier and a newly released tier can be used without a mAIestro update. Not a closed enum on purpose: the frontend offers the common aliases as suggestions but accepts any string. Applies ONLY to these drafting calls, never to the user-facing session launched in the worktree (which uses the user's ambient `claude` config)."
+      "description": "Which Claude model runs mAIestro Code's own programmatic prompts (draft_issue, short_label, draft_pr) via the headless `claude -p` calls. null/empty = the default (`haiku`). Passed verbatim to `claude --model`, so any value that flag accepts works — a tier alias (`haiku`, `sonnet`, `opus`, `fable`) or a full model id (`claude-haiku-4-5`). An alias tracks the latest model in that tier, so `haiku` (the default) always resolves to the current fastest tier and a newly released tier can be used without a mAIestro Code update. Not a closed enum on purpose: the frontend offers the common aliases as suggestions but accepts any string. Applies ONLY to these drafting calls, never to the user-facing session launched in the worktree (which uses the user's ambient `claude` config)."
     },
     "hidden": {
       "type": ["object", "null"],

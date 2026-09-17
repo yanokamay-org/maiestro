@@ -10,7 +10,7 @@ import VSCodeIcon from "../icons/vscode.svg?react";
 import ChevronRightIcon from "../icons/chevron-right.svg?react";
 
 // A pending Tear Down prompt: a warnings confirmation, or a "VS Code still open"
-// block (which may offer the Accessibility shortcut so mAIestro can close it).
+// block (which may offer the Accessibility shortcut so mAIestro Code can close it).
 export type TeardownPrompt =
   | { id: string; kind: "confirm"; warnings: string[] }
   | { id: string; kind: "blocked"; message: string; accessibility: boolean };
@@ -70,7 +70,7 @@ export function SessionRow({
   // An active PR (open or still a draft) already covers this branch, so disable
   // Create PR; the pill links to it.
   const prOpen = pr?.state === "open" || pr?.state === "draft";
-  // A mAIestro operation in flight on this row. The rainbow "working" pill keeps
+  // A mAIestro Code operation in flight on this row. The rainbow "working" pill keeps
   // the feedback visible after the command strip collapses on click; mirrors the
   // command buttons' busy flags so it clears on completion or failure.
   const opLabel = creating

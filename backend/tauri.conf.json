@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mAIestro",
+  "productName": "mAIestro Code",
   "version": "0.2.9",
   "identifier": "com.maiestro.app",
   "build": {
@@ -15,7 +15,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "mAIestro",
+        "title": "mAIestro Code",
         "width": 680,
         "height": 460,
         "minWidth": 480,
@@ -30,7 +30,7 @@
       },
       {
         "label": "settings",
-        "title": "mAIestro Settings",
+        "title": "mAIestro Code Settings",
         "width": 900,
         "height": 640,
         "minWidth": 560,
@@ -41,7 +41,7 @@
       },
       {
         "label": "logs",
-        "title": "mAIestro Logs",
+        "title": "mAIestro Code Logs",
         "width": 760,
         "height": 520,
         "minWidth": 480,
@@ -52,7 +52,7 @@
       },
       {
         "label": "onboarding",
-        "title": "Welcome to mAIestro",
+        "title": "Welcome to mAIestro Code",
         "width": 460,
         "height": 470,
         "resizable": false,

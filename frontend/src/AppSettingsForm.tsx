@@ -129,7 +129,7 @@ function LaunchAtLoginControl(props: ControlProps) {
         >
           <span className="toggle-knob" />
         </button>
-        <p className="session-hint">Start mAIestro automatically when you log in.</p>
+        <p className="session-hint">Start mAIestro Code automatically when you log in.</p>
       </div>
     </div>
   );
