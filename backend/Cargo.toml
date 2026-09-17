@@ -1,6 +1,6 @@
 [package]
 name = "maiestro"
-version = "0.3.0"
+version = "0.3.1"
 description = "Menu-bar launcher for per-issue dev workspaces"
 edition = "2021"
 license = "MIT"
