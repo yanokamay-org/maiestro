@@ -16,6 +16,8 @@ const SCHEMA = {
     worktree_prefix: { type: ["string", "null"], default: "~/src/work-" },
     prompt_model: { type: ["string", "null"], default: "haiku" },
     cloned_repo_dir: { type: ["string", "null"] },
+    comment_on_spawn: { type: ["boolean", "null"], default: true },
+    delete_remote_on_teardown: { type: ["boolean", "null"], default: true },
     prompts: {
       type: "object",
       properties: {
@@ -39,10 +41,22 @@ describe("extractFormDefaults", () => {
     });
   });
 
+  // Collected generically from the schema, so a boolean added there needs no
+  // change to the form — and a `true` default must survive, since that's what a
+  // null (= "use the default") field renders as.
+  it("collects every boolean property's default, keyed by name", () => {
+    const d = extractFormDefaults(SCHEMA);
+    expect(d.booleanDefaults).toEqual({
+      comment_on_spawn: true,
+      delete_remote_on_teardown: true,
+    });
+  });
+
   it("falls back to empty strings when defaults are missing", () => {
     const d = extractFormDefaults({ properties: {} });
     expect(d.worktreePrefixDefault).toBe("");
     expect(d.promptModelDefault).toBe("");
+    expect(d.booleanDefaults).toEqual({});
     expect(d.promptDefaults).toEqual({ draft_issue: "", short_label: "", draft_pr: "" });
   });
 

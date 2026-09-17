@@ -44,3 +44,15 @@ pub fn default_str(schema: &serde_json::Value, pointer: &str) -> String {
         .unwrap_or_default()
         .to_string()
 }
+
+/// A boolean `default` from a parsed schema, addressed by JSON Pointer (e.g.
+/// `/properties/comment_on_spawn/default`). The boolean counterpart to
+/// [`default_str`], for the same reason: a `null`/absent field in a settings
+/// file means "use the default", and that default is declared in the schema
+/// only — never as a literal in Rust. Returns `false` if absent.
+pub fn default_bool(schema: &serde_json::Value, pointer: &str) -> bool {
+    schema
+        .pointer(pointer)
+        .and_then(|v| v.as_bool())
+        .unwrap_or_default()
+}
