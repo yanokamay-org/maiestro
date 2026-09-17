@@ -679,37 +679,84 @@ pub enum TeardownOutcome {
     BlockedByEditor { message: String, accessibility: bool },
 }
 
+/// Whether the branch's work has already landed on the base branch.
+///
+/// Tri-state on purpose. "GitHub says this never merged" and "we could not ask
+/// GitHub" are different facts, and collapsing them into one `bool` loses the
+/// distinction exactly where it matters — a swallowed API error would read as a
+/// confident "not merged".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Landed {
+    Yes,
+    No,
+    Unknown,
+}
+
+impl Landed {
+    /// Read merged-ness off a PR list. An empty list is a real answer ("no PR
+    /// ever merged this branch"), not an absent one — the caller distinguishes a
+    /// failed *call*, which never reaches here.
+    fn from_prs(prs: &[serde_json::Value]) -> Self {
+        if prs.iter().any(|p| p["merged_at"].is_string()) {
+            Landed::Yes
+        } else {
+            Landed::No
+        }
+    }
+}
+
+/// How many commits on `branch` carry work that isn't already on `origin/<base>`,
+/// or `None` when the question can't be answered (missing base ref, git failure).
+///
+/// Uses `git cherry`, which compares **patch ids** rather than ancestry, so a
+/// branch that landed by rebase, cherry-pick, or a single-commit squash reports
+/// `0` even though none of its commits is an ancestor of the base.
+/// `rev-list --count <base>..<branch>` counts those as unmerged and would strand
+/// the branch forever. A multi-commit squash still reports > 0 (the squashed
+/// patch matches no individual commit), which is why GitHub's `merged_at` — not
+/// this count — is the primary signal; this is the local cross-check.
+async fn unmerged_commit_count(work_dir: &Path, base: &str, branch: &str) -> Option<u32> {
+    let out = git(work_dir, &["cherry", &format!("origin/{base}"), branch]).await.ok()?;
+    Some(out.lines().filter(|l| l.starts_with('+')).count() as u32)
+}
+
 /// Why teardown must leave the session's branch on GitHub alone, or `None` when
 /// deleting it is safe. Pure, so the policy is unit-testable without a network.
 ///
-/// This is a **whitelist**: the branch goes only when its work is already safe —
-/// the PR merged, or the branch carries nothing beyond the base branch. It is
-/// deliberately stricter than teardown's own confirmation prompt, which asks
-/// about destroying the *worktree*; that is not consent to destroy pushed
-/// commits which, once the worktree is gone, exist nowhere else. There is no
-/// override — a branch still holding unlanded work is deleted on GitHub by hand.
+/// This is a **whitelist**: the branch goes only when its work is provably safe —
+/// GitHub confirms the PR merged, or the branch demonstrably carries nothing the
+/// base doesn't already have. Every uncertainty resolves to "keep the branch",
+/// because the two failure directions are not symmetric: keeping a stale branch
+/// is untidy, while deleting a live one destroys work that, once the worktree is
+/// gone, exists nowhere else. It is therefore deliberately stricter than
+/// teardown's own confirmation prompt, which only asks about the *worktree*, and
+/// there is no override — a branch still holding unlanded work is deleted by hand.
 fn remote_delete_skip_reason(
     enabled: bool,
-    has_client: bool,
+    landed: Landed,
     pr_open: bool,
-    pr_merged: bool,
-    ahead: u32,
+    unmerged: Option<u32>,
 ) -> Option<&'static str> {
     if !enabled {
         return Some("delete_remote_on_teardown is off for this repo");
     }
-    if !has_client {
-        // Also the "GitHub was unreachable during the checks" case: without a
-        // client we know nothing about the PR, so we assume the worst.
-        return Some("no GitHub identity is configured for this repo");
-    }
     if pr_open {
+        // An open PR outranks a merged one: deleting the head closes it.
         return Some("a pull request is still open against this branch");
     }
-    if !pr_merged && ahead > 0 {
-        return Some("the branch has commits that were never merged");
+    match landed {
+        // GitHub confirmed it merged — however it landed (squash, rebase, merge).
+        Landed::Yes => None,
+        // No identity, or the API call failed. We know nothing, so assume the worst.
+        Landed::Unknown => Some("could not confirm with GitHub whether this branch merged"),
+        // GitHub says no PR merged it, so the branch may only go if it carries
+        // nothing the base lacks. `None` means git couldn't tell us — also a no.
+        Landed::No => match unmerged {
+            Some(0) => None,
+            Some(_) => Some("the branch has commits that were never merged"),
+            None => Some("could not determine whether the branch has unmerged commits"),
+        },
     }
-    None
 }
 
 /// Tear down a spawned session's worktree. Inspects the branch first
@@ -743,14 +790,17 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
     // PR state via the REST API (best-effort: needs an identity + token). The
     // client and the facts it yields outlive this block: the execute phase needs
     // them to decide whether the branch on GitHub can be safely deleted.
-    let mut pr_merged = false;
+    let mut landed = Landed::Unknown;
     let mut pr_open = false;
     let mut github: Option<GitHub> = None;
     let settings = crate::repo_settings::repo_settings_get(session.repo.clone())?;
     if let Some(identity_id) = settings.identity_id.as_deref() {
         if let Ok(gh) = GitHub::for_identity(identity_id).await {
+            // `merged_at` is authoritative however the PR landed — squash, rebase,
+            // or a merge commit — which is why merged-ness is asked of GitHub and
+            // never inferred from local ancestry.
             if let Ok(prs) = gh.pulls_for_branch(&session.repo, &branch).await {
-                pr_merged = prs.iter().any(|p| p["merged_at"].is_string());
+                landed = Landed::from_prs(&prs);
                 if let Some(open) = prs.iter().find(|p| p["state"].as_str() == Some("open")) {
                     pr_open = true;
                     warnings.push(format!("PR #{} is still open", open["number"].as_u64().unwrap_or(0)));
@@ -759,11 +809,15 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
             // Fallback: once a PR merges, GitHub deletes its head branch by
             // default, after which the head-ref filter above returns nothing and
             // we'd wrongly conclude "no work on this branch". Resolve by the
-            // branch's tip commit instead, which still points at the merged PR.
-            if !pr_merged {
+            // branch's tip commit instead, which still points at the merged PR
+            // (true for a squash merge too — the PR still lists its original
+            // commits, even though none of them is an ancestor of the base).
+            if landed != Landed::Yes {
                 if let Ok(sha) = git(&work_dir, &["rev-parse", "HEAD"]).await {
                     if let Ok(prs) = gh.pulls_for_commit(&session.repo, &sha).await {
-                        pr_merged = prs.iter().any(|p| p["merged_at"].is_string());
+                        if Landed::from_prs(&prs) == Landed::Yes {
+                            landed = Landed::Yes;
+                        }
                     }
                 }
             }
@@ -771,21 +825,25 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
         }
     }
 
-    // Commits on the branch not yet on the base, when no merged PR accounts for them.
-    let ahead = git(&work_dir, &["rev-list", "--count", &format!("origin/{base}..{branch}")])
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-        .unwrap_or(0);
-    if !pr_merged && ahead > 0 {
-        warnings.push(format!("Branch has {ahead} commit(s) not merged"));
+    // Refresh `origin/<base>` before counting against it: teardown can run long
+    // after the last fetch, and a stale base ref inflates the count, which reads
+    // as "unmerged work" and strands the branch forever. Best-effort — a stale
+    // count only ever over-reports, so it fails safe.
+    if let Err(e) = git_net(&cloned_repo, &["fetch", "origin", "--quiet"]).await {
+        tracing::debug!(error = %e, "fetch before teardown checks failed (continuing with a possibly stale base)");
     }
-    if !pr_merged && ahead == 0 && !dirty {
+
+    // Commits on the branch not yet on the base, when no merged PR accounts for them.
+    let unmerged = unmerged_commit_count(&work_dir, &base, &branch).await;
+    if landed != Landed::Yes && unmerged.is_some_and(|n| n > 0) {
+        warnings.push(format!("Branch has {} commit(s) not merged", unmerged.unwrap_or(0)));
+    }
+    if landed != Landed::Yes && unmerged == Some(0) && !dirty {
         warnings.push("Nothing has been done on this branch".to_string());
     }
 
     // Skip confirmation only when the PR is merged and nothing new remains.
-    let safe = pr_merged && !dirty;
+    let safe = landed == Landed::Yes && !dirty;
     if !safe && !confirmed {
         return Ok(TeardownOutcome::NeedsConfirmation { warnings });
     }
@@ -868,18 +926,20 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
         settings.delete_remote_on_teardown,
         "/properties/delete_remote_on_teardown/default",
     );
-    match remote_delete_skip_reason(delete_remote, github.is_some(), pr_open, pr_merged, ahead) {
+    match remote_delete_skip_reason(delete_remote, landed, pr_open, unmerged) {
         Some(reason) => {
             tracing::info!(branch = %branch, reason, "keeping the remote branch");
         }
-        None => {
-            // `remote_delete_skip_reason` returns `None` only when `has_client`.
-            let gh = github.as_ref().expect("guard passes only with a client");
-            match gh.delete_ref(&session.repo, &branch).await {
+        // The guard only clears with a definite answer from GitHub, which implies
+        // a client — but read it as an Option rather than asserting the invariant,
+        // so a future edit to the guard can't turn this into a panic.
+        None => match github.as_ref() {
+            Some(gh) => match gh.delete_ref(&session.repo, &branch).await {
                 Ok(()) => tracing::info!(branch = %branch, "deleted remote branch"),
                 Err(e) => tracing::warn!(branch = %branch, error = %e, "could not delete remote branch during teardown"),
-            }
-        }
+            },
+            None => tracing::warn!(branch = %branch, "guard cleared the remote delete with no GitHub client; keeping the branch"),
+        },
     }
     // The remote-tracking ref is stale either way — we just deleted the branch,
     // or GitHub deleted it on merge and nothing pruned it locally. Local-only, so
@@ -1067,14 +1127,21 @@ mod tests {
 
     // ── Remote-branch delete guard ──────────────────────────────────────────
 
-    /// The only two shapes that may delete: the work landed, or the branch never
-    /// carried anything beyond base (nothing to lose either way).
+    /// The only two shapes that may delete: GitHub confirms the work landed, or
+    /// the branch demonstrably carries nothing beyond base.
     #[test]
     fn remote_delete_allowed_only_when_the_work_is_safe() {
-        // Merged, even with commits the stale base ref hasn't caught up to.
-        assert_eq!(remote_delete_skip_reason(true, true, false, true, 3), None);
-        // Nothing on the branch beyond base.
-        assert_eq!(remote_delete_skip_reason(true, true, false, false, 0), None);
+        assert_eq!(remote_delete_skip_reason(true, Landed::Yes, false, Some(3)), None);
+        assert_eq!(remote_delete_skip_reason(true, Landed::No, false, Some(0)), None);
+    }
+
+    /// A squash- or rebase-merged PR leaves no commit of its own as an ancestor
+    /// of the base, so a local ancestry/commit count still reports unmerged work.
+    /// GitHub's `merged_at` is what decides, and it outranks that count — without
+    /// this, every squash-merged branch would be stranded forever.
+    #[test]
+    fn remote_delete_trusts_github_over_a_local_commit_count() {
+        assert_eq!(remote_delete_skip_reason(true, Landed::Yes, false, Some(12)), None);
     }
 
     /// Unmerged commits are never destroyed. Teardown's confirmation prompt is
@@ -1082,25 +1149,48 @@ mod tests {
     /// work, so there is deliberately no `confirmed`/`force` input here.
     #[test]
     fn remote_delete_refuses_unmerged_commits() {
-        assert!(remote_delete_skip_reason(true, true, false, false, 1).is_some());
-        // A PR closed without merging reads exactly like "never had a PR": not
-        // merged, commits still on the branch.
-        assert!(remote_delete_skip_reason(true, true, false, false, 7).is_some());
+        assert!(remote_delete_skip_reason(true, Landed::No, false, Some(1)).is_some());
+        // A PR closed without merging reads exactly like "never had a PR".
+        assert!(remote_delete_skip_reason(true, Landed::No, false, Some(7)).is_some());
     }
 
-    /// An open PR keeps its head branch: deleting it would close the PR.
+    /// Both "don't know" shapes must fail **closed**. `Unknown` is no identity or
+    /// a failed API call; `None` is git declining to count (e.g. a missing
+    /// `origin/<base>`). Neither may be read as "nothing to lose" — that would
+    /// delete a live branch on a transient error.
+    #[test]
+    fn remote_delete_fails_closed_on_every_uncertainty() {
+        assert!(remote_delete_skip_reason(true, Landed::Unknown, false, Some(0)).is_some());
+        assert!(remote_delete_skip_reason(true, Landed::Unknown, false, None).is_some());
+        assert!(remote_delete_skip_reason(true, Landed::No, false, None).is_some());
+    }
+
+    /// An open PR keeps its head branch: deleting it would close the PR. It
+    /// outranks even a merged PR on the same branch.
     #[test]
     fn remote_delete_refuses_while_a_pr_is_open() {
-        assert!(remote_delete_skip_reason(true, true, true, false, 0).is_some());
-        // Even a merged PR plus another still open — the open one wins.
-        assert!(remote_delete_skip_reason(true, true, true, true, 0).is_some());
+        assert!(remote_delete_skip_reason(true, Landed::No, true, Some(0)).is_some());
+        assert!(remote_delete_skip_reason(true, Landed::Yes, true, Some(0)).is_some());
     }
 
-    /// Off by setting, or no client to ask (which is also the "GitHub was
-    /// unreachable during the checks" case — we know nothing, so assume the worst).
+    /// The setting gates the delete but never unlocks it.
     #[test]
-    fn remote_delete_refuses_when_disabled_or_clientless() {
-        assert!(remote_delete_skip_reason(false, true, false, true, 0).is_some());
-        assert!(remote_delete_skip_reason(true, false, false, true, 0).is_some());
+    fn remote_delete_refuses_when_disabled() {
+        assert!(remote_delete_skip_reason(false, Landed::Yes, false, Some(0)).is_some());
+    }
+
+    /// An empty PR list is a real "nothing merged this", not an absent answer —
+    /// the failed-call case never reaches `from_prs`.
+    #[test]
+    fn landed_reads_merged_at_and_treats_no_prs_as_not_merged() {
+        assert_eq!(Landed::from_prs(&[]), Landed::No);
+        assert_eq!(
+            Landed::from_prs(&[serde_json::json!({ "state": "closed", "merged_at": null })]),
+            Landed::No
+        );
+        assert_eq!(
+            Landed::from_prs(&[serde_json::json!({ "merged_at": "2026-01-01T00:00:00Z" })]),
+            Landed::Yes
+        );
     }
 }
