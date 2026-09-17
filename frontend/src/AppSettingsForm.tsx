@@ -21,6 +21,7 @@ import { withJsonFormsControlProps } from "@jsonforms/react";
 import { vanillaRenderers, vanillaCells } from "@jsonforms/vanilla-renderers";
 import { ResolvedTool, Theme } from "./api";
 import { RevealButton, PathMissingHint, usePathExists } from "./PathField";
+import { ToggleSwitch } from "./components/ToggleSwitch";
 
 /** Field order; `window`/`settings_window`/`onboarding_completed` are
  *  deliberately omitted (machine-managed). */
@@ -110,7 +111,6 @@ export const ThemeRenderer = withJsonFormsControlProps(ThemeControl);
 
 function LaunchAtLoginControl(props: ControlProps) {
   const { data, handleChange, path } = props;
-  const on = data === true;
   // Title stays flush-left like the other sections (Theme, Tool paths); the switch
   // sits to the left of the help text on the row below it. Help text is
   // deliberately concise — no "change this in Preferences" note, since we're
@@ -118,19 +118,12 @@ function LaunchAtLoginControl(props: ControlProps) {
   return (
     <div className="control jsf-control">
       <label className="jsf-label">Launch at login</label>
-      <div className="toggle-field">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          aria-label="Launch at login"
-          className={`toggle-switch ${on ? "on" : ""}`}
-          onClick={() => handleChange(path, !on)}
-        >
-          <span className="toggle-knob" />
-        </button>
-        <p className="session-hint">Start mAIestro Code automatically when you log in.</p>
-      </div>
+      <ToggleSwitch
+        on={data === true}
+        onChange={(on) => handleChange(path, on)}
+        label="Launch at login"
+        hint="Start mAIestro Code automatically when you log in."
+      />
     </div>
   );
 }

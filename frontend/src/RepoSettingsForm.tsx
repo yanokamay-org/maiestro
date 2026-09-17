@@ -12,6 +12,7 @@
 import { useState } from "react";
 import {
   ControlProps,
+  isBooleanControl,
   rankWith,
   scopeEndsWith,
   UISchemaElement,
@@ -20,6 +21,7 @@ import { withJsonFormsControlProps } from "@jsonforms/react";
 import { vanillaRenderers, vanillaCells } from "@jsonforms/vanilla-renderers";
 import { api } from "./api";
 import { PathField, RevealButton, usePathExists } from "./PathField";
+import { ToggleSwitch } from "./components/ToggleSwitch";
 
 /** Field order, with `repo` and `hidden` deliberately omitted (the latter is
  *  managed from the popover, not this form). */
@@ -31,6 +33,8 @@ export const repoSettingsUISchema = {
     { type: "Control", scope: "#/properties/identity_id", label: "Identity" },
     { type: "Control", scope: "#/properties/env_files", label: "Environment files" },
     { type: "Control", scope: "#/properties/post_spawn_commands", label: "Post-spawn commands" },
+    { type: "Control", scope: "#/properties/comment_on_spawn", label: "Comment on the issue when spawning" },
+    { type: "Control", scope: "#/properties/delete_remote_on_teardown", label: "Delete remote branch on teardown" },
     { type: "Control", scope: "#/properties/prompt_model", label: "Prompt model" },
     { type: "Control", scope: "#/properties/prompts" },
   ],
@@ -141,6 +145,37 @@ function WorktreePrefixControl(props: ControlProps) {
 
 export const worktreePrefixTester = rankWith(20, scopeEndsWith("worktree_prefix"));
 export const WorktreePrefixRenderer = withJsonFormsControlProps(WorktreePrefixControl);
+
+// ── Booleans (on/off switches) ───────────────────────────────────────────────
+// One renderer for every boolean in the schema rather than one per field, so a
+// boolean added to the schema needs no frontend edit (the same rule the Tool
+// paths rows follow). It replaces the vanilla checkbox so these read like the
+// Launch-at-login switch in Preferences.
+//
+// These fields are `boolean | null`, where null means "use the schema default" —
+// and `sanitizeSchemaForForm` strips `default` before JsonForms sees it, so a
+// null would otherwise render as *off* while the effective value is *on*. The
+// switch therefore falls back to the extracted default, passed via `config`.
+
+function BooleanControl(props: ControlProps) {
+  const { data, handleChange, path, label, description, config } = props;
+  const fallback: boolean = config?.booleanDefaults?.[path] ?? false;
+  const on = data ?? fallback;
+  return (
+    <div className="control jsf-control">
+      <label className="jsf-label">{label}</label>
+      <ToggleSwitch
+        on={on}
+        onChange={(next) => handleChange(path, next)}
+        label={label ?? path}
+        hint={description}
+      />
+    </div>
+  );
+}
+
+export const booleanTester = rankWith(10, isBooleanControl);
+export const BooleanRenderer = withJsonFormsControlProps(BooleanControl);
 
 // ── Prompt model combobox ────────────────────────────────────────────────────
 // Which Claude model runs the headless drafting prompts. Deliberately NOT a
@@ -470,6 +505,7 @@ export const repoSettingsRenderers = [
   { tester: postSpawnCommandsTester, renderer: PostSpawnCommandsRenderer },
   { tester: promptModelTester, renderer: PromptModelRenderer },
   { tester: promptsTester, renderer: PromptsRenderer },
+  { tester: booleanTester, renderer: BooleanRenderer },
   ...vanillaRenderers,
 ];
 
@@ -505,6 +541,9 @@ export function sanitizeSchemaForForm(
 export interface RepoFormDefaults {
   worktreePrefixDefault: string;
   promptModelDefault: string;
+  /** Every boolean property's default, keyed by property name. Collected
+   *  generically so a boolean added to the schema needs no change here. */
+  booleanDefaults: Record<string, boolean>;
   promptDefaults: Record<PromptKey, string>;
 }
 
@@ -515,9 +554,14 @@ export function extractFormDefaults(
   const promptProps =
     ((props.prompts as { properties?: Record<string, { default?: unknown }> })?.properties) ?? {};
   const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const booleanDefaults: Record<string, boolean> = {};
+  for (const [key, prop] of Object.entries(props)) {
+    if (typeof prop?.default === "boolean") booleanDefaults[key] = prop.default;
+  }
   return {
     worktreePrefixDefault: str(props.worktree_prefix?.default),
     promptModelDefault: str(props.prompt_model?.default),
+    booleanDefaults,
     promptDefaults: {
       draft_issue: str(promptProps.draft_issue?.default),
       short_label: str(promptProps.short_label?.default),

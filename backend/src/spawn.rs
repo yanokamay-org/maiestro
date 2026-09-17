@@ -182,6 +182,9 @@ struct SpawnBg {
     issue_number: u64,
     env_files: Vec<String>,
     post_spawn_commands: Vec<String>,
+    /// Whether to record the workspace in a comment on the issue. Resolved from
+    /// the repo's `comment_on_spawn` setting; does not affect assignment.
+    comment_on_spawn: bool,
 }
 
 /// Core worktree + session creation, shared by every spawn path. Resolves the
@@ -296,6 +299,10 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
         issue_number,
         env_files: settings.env_files.clone(),
         post_spawn_commands: settings.post_spawn_commands.clone(),
+        comment_on_spawn: crate::repo_settings::bool_or_default(
+            settings.comment_on_spawn,
+            "/properties/comment_on_spawn/default",
+        ),
     };
     tokio::spawn(finish_spawn(bg));
 
@@ -374,24 +381,29 @@ async fn do_finish_spawn(bg: &SpawnBg) -> Result<Vec<String>, String> {
         }
     }
 
-    // Assign the issue to the token's user and record the workspace in a
-    // comment. Non-fatal: the worktree already exists, so failures only warn.
+    // Assign the issue to the token's user and — unless the repo turned it off —
+    // record the workspace in a comment. Non-fatal: the worktree already exists,
+    // so failures only warn.
     match bg.gh.authenticated_login().await {
         Ok(login) => {
             if let Err(e) = bg.gh.add_assignees(&bg.repo, bg.issue_number, &[login]).await {
                 warnings.push(format!("could not assign issue #{}: {e}", bg.issue_number));
             }
-            let body = format!(
-                "🤖 Spawned a local workspace for this issue.\n\n\
-                 - **GitHub Branch:** `{}`\n\
-                 - **Local Directory:** `{}`\n\
-                 - **Claude Session:** `{}`\n",
-                bg.branch,
-                bg.work_dir.display(),
-                bg.session_title,
-            );
-            if let Err(e) = bg.gh.create_comment(&bg.repo, bg.issue_number, &body).await {
-                warnings.push(format!("could not comment on issue #{}: {e}", bg.issue_number));
+            if bg.comment_on_spawn {
+                let body = format!(
+                    "🤖 Spawned a local workspace for this issue.\n\n\
+                     - **GitHub Branch:** `{}`\n\
+                     - **Local Directory:** `{}`\n\
+                     - **Claude Session:** `{}`\n",
+                    bg.branch,
+                    bg.work_dir.display(),
+                    bg.session_title,
+                );
+                if let Err(e) = bg.gh.create_comment(&bg.repo, bg.issue_number, &body).await {
+                    warnings.push(format!("could not comment on issue #{}: {e}", bg.issue_number));
+                }
+            } else {
+                tracing::debug!(issue = bg.issue_number, "comment_on_spawn is off; not commenting on the issue");
             }
         }
         Err(e) => warnings.push(format!("could not resolve token user for assignment: {e}")),
@@ -667,6 +679,39 @@ pub enum TeardownOutcome {
     BlockedByEditor { message: String, accessibility: bool },
 }
 
+/// Why teardown must leave the session's branch on GitHub alone, or `None` when
+/// deleting it is safe. Pure, so the policy is unit-testable without a network.
+///
+/// This is a **whitelist**: the branch goes only when its work is already safe —
+/// the PR merged, or the branch carries nothing beyond the base branch. It is
+/// deliberately stricter than teardown's own confirmation prompt, which asks
+/// about destroying the *worktree*; that is not consent to destroy pushed
+/// commits which, once the worktree is gone, exist nowhere else. There is no
+/// override — a branch still holding unlanded work is deleted on GitHub by hand.
+fn remote_delete_skip_reason(
+    enabled: bool,
+    has_client: bool,
+    pr_open: bool,
+    pr_merged: bool,
+    ahead: u32,
+) -> Option<&'static str> {
+    if !enabled {
+        return Some("delete_remote_on_teardown is off for this repo");
+    }
+    if !has_client {
+        // Also the "GitHub was unreachable during the checks" case: without a
+        // client we know nothing about the PR, so we assume the worst.
+        return Some("no GitHub identity is configured for this repo");
+    }
+    if pr_open {
+        return Some("a pull request is still open against this branch");
+    }
+    if !pr_merged && ahead > 0 {
+        return Some("the branch has commits that were never merged");
+    }
+    None
+}
+
 /// Tear down a spawned session's worktree. Inspects the branch first
 /// (uncommitted changes, PR state, unmerged commits); confirmation is required
 /// in every case except when the PR is merged and nothing new remains. On
@@ -695,14 +740,19 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
         warnings.push("Worktree has uncommitted changes".to_string());
     }
 
-    // PR state via the REST API (best-effort: needs an identity + token).
+    // PR state via the REST API (best-effort: needs an identity + token). The
+    // client and the facts it yields outlive this block: the execute phase needs
+    // them to decide whether the branch on GitHub can be safely deleted.
     let mut pr_merged = false;
+    let mut pr_open = false;
+    let mut github: Option<GitHub> = None;
     let settings = crate::repo_settings::repo_settings_get(session.repo.clone())?;
-    if let Some(identity_id) = settings.identity_id {
-        if let Ok(gh) = GitHub::for_identity(&identity_id).await {
+    if let Some(identity_id) = settings.identity_id.as_deref() {
+        if let Ok(gh) = GitHub::for_identity(identity_id).await {
             if let Ok(prs) = gh.pulls_for_branch(&session.repo, &branch).await {
                 pr_merged = prs.iter().any(|p| p["merged_at"].is_string());
                 if let Some(open) = prs.iter().find(|p| p["state"].as_str() == Some("open")) {
+                    pr_open = true;
                     warnings.push(format!("PR #{} is still open", open["number"].as_u64().unwrap_or(0)));
                 }
             }
@@ -717,6 +767,7 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
                     }
                 }
             }
+            github = Some(gh);
         }
     }
 
@@ -809,7 +860,33 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
         }
     }
 
-    // 4. Remove the leftover wrapper dir (`<prefix><workspace>`), gating removal
+    // 4. Delete the branch on GitHub, then drop the now-stale remote-tracking
+    //    ref. Guarded by `remote_delete_skip_reason` and strictly non-fatal: a
+    //    teardown must never fail because GitHub was unreachable. The skip is
+    //    logged with its reason so the behavior is explainable from the log.
+    let delete_remote = crate::repo_settings::bool_or_default(
+        settings.delete_remote_on_teardown,
+        "/properties/delete_remote_on_teardown/default",
+    );
+    match remote_delete_skip_reason(delete_remote, github.is_some(), pr_open, pr_merged, ahead) {
+        Some(reason) => {
+            tracing::info!(branch = %branch, reason, "keeping the remote branch");
+        }
+        None => {
+            // `remote_delete_skip_reason` returns `None` only when `has_client`.
+            let gh = github.as_ref().expect("guard passes only with a client");
+            match gh.delete_ref(&session.repo, &branch).await {
+                Ok(()) => tracing::info!(branch = %branch, "deleted remote branch"),
+                Err(e) => tracing::warn!(branch = %branch, error = %e, "could not delete remote branch during teardown"),
+            }
+        }
+    }
+    // The remote-tracking ref is stale either way — we just deleted the branch,
+    // or GitHub deleted it on merge and nothing pruned it locally. Local-only, so
+    // it costs no network and runs even when the delete was skipped.
+    let _ = git(&cloned_repo, &["update-ref", "-d", &format!("refs/remotes/origin/{branch}")]).await;
+
+    // 5. Remove the leftover wrapper dir (`<prefix><workspace>`), gating removal
     //    on the path actually starting with the repo's configured worktree
     //    prefix so we never remove_dir_all something outside it. A spawn-generated
     //    path never contains `..`; reject any that does before the string-prefix
@@ -836,7 +913,7 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
         }
     }
 
-    // 5. Drop the session record and its live status file.
+    // 6. Drop the session record and its live status file.
     if let Err(e) = crate::sessions::delete(&session_id) {
         tracing::warn!(error = %e, "could not delete session record during teardown");
     }
@@ -986,5 +1063,44 @@ mod tests {
             }
             other => panic!("expected Create, got {other:?}"),
         }
+    }
+
+    // ── Remote-branch delete guard ──────────────────────────────────────────
+
+    /// The only two shapes that may delete: the work landed, or the branch never
+    /// carried anything beyond base (nothing to lose either way).
+    #[test]
+    fn remote_delete_allowed_only_when_the_work_is_safe() {
+        // Merged, even with commits the stale base ref hasn't caught up to.
+        assert_eq!(remote_delete_skip_reason(true, true, false, true, 3), None);
+        // Nothing on the branch beyond base.
+        assert_eq!(remote_delete_skip_reason(true, true, false, false, 0), None);
+    }
+
+    /// Unmerged commits are never destroyed. Teardown's confirmation prompt is
+    /// about the worktree; it is not consent to delete the only copy of pushed
+    /// work, so there is deliberately no `confirmed`/`force` input here.
+    #[test]
+    fn remote_delete_refuses_unmerged_commits() {
+        assert!(remote_delete_skip_reason(true, true, false, false, 1).is_some());
+        // A PR closed without merging reads exactly like "never had a PR": not
+        // merged, commits still on the branch.
+        assert!(remote_delete_skip_reason(true, true, false, false, 7).is_some());
+    }
+
+    /// An open PR keeps its head branch: deleting it would close the PR.
+    #[test]
+    fn remote_delete_refuses_while_a_pr_is_open() {
+        assert!(remote_delete_skip_reason(true, true, true, false, 0).is_some());
+        // Even a merged PR plus another still open — the open one wins.
+        assert!(remote_delete_skip_reason(true, true, true, true, 0).is_some());
+    }
+
+    /// Off by setting, or no client to ask (which is also the "GitHub was
+    /// unreachable during the checks" case — we know nothing, so assume the worst).
+    #[test]
+    fn remote_delete_refuses_when_disabled_or_clientless() {
+        assert!(remote_delete_skip_reason(false, true, false, true, 0).is_some());
+        assert!(remote_delete_skip_reason(true, false, false, true, 0).is_some());
     }
 }

@@ -284,6 +284,7 @@ export function Settings() {
       clonedRepoDir: loadedRepo?.settings.cloned_repo_dir ?? null,
       worktreePrefixDefault: repoFormDefaults?.worktreePrefixDefault ?? "",
       promptModelDefault: repoFormDefaults?.promptModelDefault ?? "",
+      booleanDefaults: repoFormDefaults?.booleanDefaults ?? {},
       promptDefaults: repoFormDefaults?.promptDefaults ?? {},
     }),
     [knownIdentities, loadedRepo?.settings.cloned_repo_dir, repoFormDefaults],

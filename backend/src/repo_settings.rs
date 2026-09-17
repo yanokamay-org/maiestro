@@ -55,6 +55,15 @@ pub struct RepoSettings {
     /// login shell so PATH and tool managers are available.
     #[serde(default)]
     pub post_spawn_commands: Vec<String>,
+    /// Delete the session's branch on GitHub at teardown. `None` uses the schema
+    /// default (on). Enables the delete but never overrides teardown's safety
+    /// guard — see `spawn::remote_delete_skip_reason`.
+    #[serde(default)]
+    pub delete_remote_on_teardown: Option<bool>,
+    /// Comment on the issue when a workspace is spawned for it. `None` uses the
+    /// schema default (on). Does not affect issue assignment.
+    #[serde(default)]
+    pub comment_on_spawn: Option<bool>,
     /// Which Claude model runs mAIestro Code's own programmatic prompts (draft_issue,
     /// short_label, draft_pr) via the headless `claude -p` calls. `None`/empty
     /// uses the schema default (`haiku`). A `claude --model` tier alias, not a
@@ -83,6 +92,8 @@ impl RepoSettings {
             worktree_prefix: None,
             env_files: Vec::new(),
             post_spawn_commands: Vec::new(),
+            delete_remote_on_teardown: None,
+            comment_on_spawn: None,
             prompt_model: None,
             hidden: None,
             prompts: PromptOverrides::default(),
@@ -111,6 +122,20 @@ fn schema_value() -> serde_json::Value {
 /// read them from here rather than hardcoding. Returns `""` if absent.
 pub fn schema_default(pointer: &str) -> String {
     crate::schema::default_str(&schema_value(), pointer)
+}
+
+/// A boolean `default` from the embedded schema, addressed by JSON Pointer (e.g.
+/// `/properties/comment_on_spawn/default`). The boolean sibling of
+/// [`schema_default`], used to resolve the `Option<bool>` settings whose `None`
+/// means "use the default" — so the default itself lives only in the schema.
+pub fn schema_default_bool(pointer: &str) -> bool {
+    crate::schema::default_bool(&schema_value(), pointer)
+}
+
+/// Resolve an `Option<bool>` setting against its schema `default`, which is the
+/// only place the default is declared. `pointer` addresses that default.
+pub fn bool_or_default(configured: Option<bool>, pointer: &str) -> bool {
+    configured.unwrap_or_else(|| schema_default_bool(pointer))
 }
 
 /// Validate a settings JSON value against the embedded schema. Returns a message
@@ -318,6 +343,22 @@ mod tests {
         assert!(v.get("properties").is_some(), "schema must declare properties");
     }
 
+    /// `prompt_model`'s help text names its default ("…the default (haiku)") so
+    /// the Settings form doesn't make the user go look it up. That is a second
+    /// copy of the value, so pin it: changing the `default` without rewording the
+    /// `description` fails here rather than shipping a form that lies.
+    #[test]
+    fn prompt_model_help_names_its_default() {
+        let schema = schema_value();
+        let prop = &schema["properties"]["prompt_model"];
+        let default = prop["default"].as_str().expect("prompt_model declares a default");
+        let description = prop["description"].as_str().expect("prompt_model is described");
+        assert!(
+            description.contains(&format!("({default})")),
+            "prompt_model's description must name its default `{default}`, but reads: {description}"
+        );
+    }
+
     /// Drift guard: the hand-written schema and the Rust struct must describe the
     /// same set of top-level fields, and every serialized `RepoSettings` must
     /// validate against the schema. Adding a field to one without the other fails
@@ -342,6 +383,8 @@ mod tests {
             worktree_prefix: Some("/home/u/src/work-".into()),
             env_files: vec![".env".into(), ".env.local".into()],
             post_spawn_commands: vec!["pnpm install".into()],
+            delete_remote_on_teardown: Some(false),
+            comment_on_spawn: Some(false),
             prompt_model: Some("sonnet".into()),
             hidden: Some(HideState { snooze_until: Some(1_717_372_800_000) }),
             prompts: PromptOverrides {

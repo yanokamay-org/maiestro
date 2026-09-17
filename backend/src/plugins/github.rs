@@ -297,6 +297,29 @@ impl GitHub {
         if resp.status().is_success() { Ok(()) } else { Err(error_message(resp).await) }
     }
 
+    /// Delete a branch on `repo` ("owner/name") — `DELETE /git/refs/heads/<branch>`.
+    ///
+    /// "Already gone" counts as success. GitHub deletes a PR's head branch itself
+    /// on merge when the repo has that option enabled, so by the time teardown
+    /// runs the ref is usually absent; it answers `422 Reference does not exist`
+    /// (or `404`), neither of which is a failure of what the caller asked for.
+    /// This makes the call idempotent and safe to repeat.
+    pub async fn delete_ref(&self, repo: &str, branch: &str) -> Result<(), String> {
+        let url = self.api(&format!("/repos/{repo}/git/refs/heads/{branch}"));
+        let resp = self
+            .send(self.req(reqwest::Method::DELETE, &url))
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        if status.is_success()
+            || status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        {
+            return Ok(());
+        }
+        Err(error_message(resp).await)
+    }
+
     pub async fn create_comment(&self, repo: &str, number: u64, body: &str) -> Result<(), String> {
         let url = self.api(&format!("/repos/{repo}/issues/{number}/comments"));
         let resp = self.send(self.req(reqwest::Method::POST, &url)
