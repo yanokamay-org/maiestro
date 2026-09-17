@@ -1,6 +1,6 @@
 //! Spawned-session registry: one JSON file per session under
 //! `~/.maiestro/sessions/<id>.json`. Records the details of a launched
-//! workspace (worktree path, branch, theming, originating issue) so mAIestro
+//! workspace (worktree path, branch, theming, originating issue) so mAIestro Code
 //! can reason about what's in flight — e.g. which title-bar colors are taken —
 //! without scraping each worktree's `.vscode/settings.json`.
 

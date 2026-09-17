@@ -49,7 +49,7 @@ pub enum Theme {
     System,
 }
 
-/// Explicit filesystem paths for the external CLIs mAIestro invokes directly.
+/// Explicit filesystem paths for the external CLIs mAIestro Code invokes directly.
 /// Each field `None`/empty means "auto-resolve" (see `crate::tools`). Set one to
 /// pin a specific binary — useful when the app, launched from `/Applications`
 /// with a minimal `$PATH`, can't find a tool (issue #85).
@@ -84,7 +84,7 @@ pub struct AppSettings {
     /// `None`/empty means the schema `default`. See [`terminal_font_family`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_font_family: Option<String>,
-    /// Whether to launch mAIestro automatically at login via a per-user
+    /// Whether to launch mAIestro Code automatically at login via a per-user
     /// LaunchAgent (issue #98). `None` (absent) means `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_at_login: Option<bool>,
@@ -310,7 +310,7 @@ pub fn reconcile_launch_at_login(app: &tauri::AppHandle) {
 
 /// One-time onboarding: the very first time the app runs (before
 /// `onboarding_completed` is set), show the branded `onboarding` window. It's a
-/// real webview window (not a native alert) so it can display the mAIestro logo
+/// real webview window (not a native alert) so it can display the mAIestro Code logo
 /// and name and grow more options over time — a native dialog can only show the
 /// generic OS icon and a fixed button set. The user's choices arrive via
 /// `onboarding_complete` (the "Get started" button) or `complete_onboarding`

@@ -1,7 +1,7 @@
 // One-time onboarding window (issue #98), now a two-step wizard (issue #148):
 // step 1 connects a GitHub identity, step 2 collects preferences. A branded
 // webview dialog — rather than a native alert, which can only show the generic
-// OS icon — so it shows the mAIestro logo and name and can grow more options
+// OS icon — so it shows the mAIestro Code logo and name and can grow more options
 // over time. The backend opens this window only on the very first run; pressing
 // "Get started" (or closing the window, which accepts the defaults) records the
 // choices and marks onboarding complete.
@@ -70,7 +70,7 @@ export function Onboarding() {
     <div className="onboarding-brand">
       <LogoIcon className="onboarding-logo" aria-hidden="true" />
       <h1 className="onboarding-title">
-        m<span className="ai">AI</span>estro
+        m<span className="ai">AI</span>estro Code
       </h1>
     </div>
   );
@@ -114,7 +114,7 @@ export function Onboarding() {
                 onKeyDown={(e) => e.key === "Enter" && handleNext()}
               />
               <span className="onboarding-field-hint">
-                Used only for mAIestro's own GitHub API calls (listing issues, opening PRs) — never
+                Used only for mAIestro Code's own GitHub API calls (listing issues, opening PRs) — never
                 for the git/GitHub auth inside a launched session. Leave blank to skip; the identity
                 above still won't be created until a token is added, here or later in Settings.
               </span>
@@ -141,7 +141,7 @@ export function Onboarding() {
           <div className="onboarding-options">
             <OnboardingOption
               label="Launch at login"
-              hint="Start mAIestro automatically when you log in."
+              hint="Start mAIestro Code automatically when you log in."
               on={launchAtLogin}
               onToggle={() => setLaunchAtLogin((v) => !v)}
             />

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a signed, notarized mAIestro release — bump the version, build, and publish a GitHub Release with the .dmg attached. Runs the full scripts/release.sh pipeline from the primary checkout, usable from any session including a mAIestro-spawned worktree.
+description: Cut a signed, notarized mAIestro Code release — bump the version, build, and publish a GitHub Release with the .dmg attached. Runs the full scripts/release.sh pipeline from the primary checkout, usable from any session including a mAIestro Code-spawned worktree.
 allowed-tools: Bash(git *) Bash(gh *) Bash(scripts/release.sh *) Bash(cd *) Read Write AskUserQuestion
 ---
 
@@ -16,7 +16,7 @@ re-invoking this skill after a failure resumes rather than restarts.
 
 ## Procedure
 
-1. **Find the primary checkout and work there.** A mAIestro-spawned session runs
+1. **Find the primary checkout and work there.** A mAIestro Code-spawned session runs
    in a *feature* worktree that has no `.env.release` and must never be released
    from. Run `git worktree list`; the **first** entry is the primary checkout.
    Prefix every command below with `cd <primary-checkout> && …` (or verify you

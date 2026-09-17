@@ -1,5 +1,5 @@
 //! Read-only "About" information for the Settings window's Preferences panel
-//! (issue #126): which version of mAIestro is running, when it was built, and
+//! (issue #126): which version of mAIestro Code is running, when it was built, and
 //! where to read that version's release notes.
 //!
 //! None of this is user configuration — it is deliberately *not* a field in

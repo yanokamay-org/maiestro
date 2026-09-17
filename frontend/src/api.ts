@@ -132,7 +132,7 @@ export interface PrChecks {
 }
 
 /** The live Claude session state, from the `maiestro hook` helper. `creating` is
- *  mAIestro's own pre-Claude state; the rest map from Claude Code hook events. */
+ *  mAIestro Code's own pre-Claude state; the rest map from Claude Code hook events. */
 export type SessionState = "creating" | "running" | "busy" | "needs_you" | "idle" | "ended";
 
 /** Live per-session status, written by the `maiestro hook` helper and watched
@@ -176,7 +176,7 @@ export interface WorkState {
 /** Chosen UI appearance. "system" follows the macOS dark/light setting. */
 export type Theme = "light" | "dark" | "system";
 
-/** Explicit paths for the CLIs mAIestro invokes directly. Each null/empty =
+/** Explicit paths for the CLIs mAIestro Code invokes directly. Each null/empty =
  *  auto-resolve (login-shell PATH → which → known locations). */
 export interface ToolPaths {
   claude?: string | null;
@@ -194,7 +194,7 @@ export interface AppSettings {
   /** Font stack for a spawned worktree's VS Code terminal
    *  (`terminal.integrated.fontFamily`). null/empty = the schema default. */
   terminal_font_family?: string | null;
-  /** Launch mAIestro automatically at login (per-user LaunchAgent). null = false. */
+  /** Launch mAIestro Code automatically at login (per-user LaunchAgent). null = false. */
   launch_at_login?: boolean | null;
   window?: { width: number; height: number } | null;
   settings_window?: { width: number; height: number } | null;

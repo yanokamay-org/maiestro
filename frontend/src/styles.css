@@ -279,7 +279,7 @@ body {
   white-space: nowrap;
 }
 
-/* A transient "working" pill shown in the row while a mAIestro operation
+/* A transient "working" pill shown in the row while a mAIestro Code operation
    (Create PR / Merge / Tear Down) is in flight. Non-interactive: the rotating
    rainbow ring (`busy-ring`) is the indicator, matching the Claude pill's busy
    look. Sits just before the action pill group. */

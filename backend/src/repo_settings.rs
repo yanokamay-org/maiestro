@@ -12,7 +12,7 @@ pub struct HideState {
     pub snooze_until: Option<i64>,
 }
 
-/// Per-repo overrides for the instructions mAIestro sends to Claude. Each field
+/// Per-repo overrides for the instructions mAIestro Code sends to Claude. Each field
 /// `None`/empty uses the built-in default (see `prompts.rs`). The runtime
 /// context (idea, issue, diff) is appended automatically and is not part of
 /// these overrides.
@@ -38,7 +38,7 @@ pub struct RepoSettings {
     /// Identity used for credentials and agent spawning for this repo.
     pub identity_id: Option<String>,
     /// Absolute path to the local cloned repo directory (the primary checkout
-    /// mAIestro creates worktrees from).
+    /// mAIestro Code creates worktrees from).
     pub cloned_repo_dir: Option<String>,
     /// Prefix for worktree locations. The full worktree path is
     /// `<worktree_prefix><workspace>/<repo>` (a string concatenation — the
@@ -55,7 +55,7 @@ pub struct RepoSettings {
     /// login shell so PATH and tool managers are available.
     #[serde(default)]
     pub post_spawn_commands: Vec<String>,
-    /// Which Claude model runs mAIestro's own programmatic prompts (draft_issue,
+    /// Which Claude model runs mAIestro Code's own programmatic prompts (draft_issue,
     /// short_label, draft_pr) via the headless `claude -p` calls. `None`/empty
     /// uses the schema default (`haiku`). A `claude --model` tier alias, not a
     /// pinned id, so it tracks the latest model in that tier. Applies only to

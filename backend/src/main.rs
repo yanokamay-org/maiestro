@@ -321,7 +321,7 @@ fn main() {
     // The app binary doubles as the Claude Code hook helper. When invoked as
     // `maiestro hook <state> --workspace <ws-id>` (from a spawned worktree's
     // .claude/settings.local.json), handle the hook and exit BEFORE booting the
-    // tray app — otherwise every hook would launch a second mAIestro. This path
+    // tray app — otherwise every hook would launch a second mAIestro Code. This path
     // is short-lived and writes only a status file, so it skips logging setup.
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("hook") {
@@ -330,7 +330,7 @@ fn main() {
     }
 
     logging::init();
-    tracing::info!("mAIestro starting");
+    tracing::info!("mAIestro Code starting");
 
     let registry = PluginRegistry::builder()
         .register(GitHubPlugin)
@@ -340,11 +340,16 @@ fn main() {
         .manage(PopoverState::default())
         .manage(registry)
         .plugin(tauri_plugin_positioner::init())
-        // Launch-at-login writes a per-user LaunchAgent (issue #98).
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        // Launch-at-login writes a per-user LaunchAgent (issue #98). The plist
+        // name is pinned to the pre-rebrand "mAIestro" rather than following
+        // productName, so existing installs keep (and reconcile) the same
+        // ~/Library/LaunchAgents/mAIestro.plist instead of orphaning it.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+                .app_name("mAIestro")
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Relaunch focuses the existing app instead of spawning a second.
             show_popover(app);
@@ -448,7 +453,7 @@ fn main() {
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let logs = MenuItem::with_id(app, "logs", "Show Logs", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit mAIestro", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit mAIestro Code", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&settings, &logs, &separator, &quit])?;
 
             TrayIconBuilder::with_id("main")
@@ -551,7 +556,7 @@ fn main() {
             _ => {}
         })
         .run(tauri::generate_context!())
-        .expect("error while running mAIestro");
+        .expect("error while running mAIestro Code");
 }
 
 #[cfg(test)]

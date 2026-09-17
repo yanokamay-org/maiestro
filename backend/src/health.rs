@@ -1,7 +1,7 @@
 //! Per-repo prerequisite health check (issue #93).
 //!
 //! `repo_health_check` runs a set of informational diagnostics for one tracked
-//! repo — cloned checkout, the CLIs mAIestro invokes (`git`, `claude`, `code`),
+//! repo — cloned checkout, the CLIs mAIestro Code invokes (`git`, `claude`, `code`),
 //! the GitHub token *and the permissions it grants*, the configured env files,
 //! the worktree terminal font, and (trailing, issue #146) how old each directly
 //! invoked CLI is against a hardcoded minimum — and returns a `HealthReport` the
@@ -85,7 +85,7 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     crate::log_invoke!("repo_health_check", repo = %repo);
     let settings = repo_settings::repo_settings_get(repo.clone())?;
 
-    // The model mAIestro's own drafting calls would use — the claude probe runs
+    // The model mAIestro Code's own drafting calls would use — the claude probe runs
     // against it so it doubles as a "is this model available?" check.
     let model = crate::prompts::model(&settings.prompt_model);
     // Run the probe inside the cloned repo when it exists (claude auth is global,
@@ -166,7 +166,7 @@ async fn check_cloned_repo(repo: &str, cloned_repo_dir: Option<&str>) -> HealthC
     let label = "Cloned repo exists";
     let Some(dir) = cloned_repo_dir.filter(|d| !d.trim().is_empty()) else {
         // No target dir configured, so suggest cloning into the conventional
-        // location (`~/src/<name>`, mAIestro's default cloned_repo_dir).
+        // location (`~/src/<name>`, mAIestro Code's default cloned_repo_dir).
         let name = repo.rsplit('/').next().unwrap_or(repo);
         return HealthCheck::new(id, label, HealthStatus::Fail, "No cloned_repo_dir configured")
             .with_command(clone_command(repo, &format!("~/src/{name}")));
@@ -440,7 +440,7 @@ fn classify_claude_envelope(env: &serde_json::Value, model: &str, login_command:
     }
 }
 
-/// The session editor. Today mAIestro always launches VS Code (`open_vscode`),
+/// The session editor. Today mAIestro Code always launches VS Code (`open_vscode`),
 /// preferring the `code` CLI and falling back to the app bundle — so mirror that:
 /// pass if the `code` CLI resolves, warn (with the fallback still viable) if not.
 fn check_editor() -> HealthCheck {
@@ -706,7 +706,7 @@ async fn check_github(repo: &str, identity_id: Option<&str>) -> HealthCheck {
 
 /// Derive a write-permission verdict without mutating the repo:
 /// - Classic PAT (non-empty scopes): needs `repo` (private) or at least
-///   `public_repo` (public) — mAIestro creates issues/PRs and merges.
+///   `public_repo` (public) — mAIestro Code creates issues/PRs and merges.
 /// - Fine-grained PAT (empty scopes): read the repo's `permissions.push` flag.
 fn write_permission_check(
     scopes: &[String],
@@ -767,7 +767,7 @@ fn write_permission_check(
 //
 // The earlier checks confirm each directly-invoked tool *resolves*
 // (`check_cli`, `check_claude`, `check_editor`); this trailing group asks how
-// old it is. mAIestro leans on features only newer releases have — Claude
+// old it is. mAIestro Code leans on features only newer releases have — Claude
 // Code's `--remote-control`/`--name` launch flags, the `PostToolUseFailure`
 // hook, `/color`; `git worktree`; VS Code's `--disable-workspace-trust` — so a
 // stale binary can fail mid-spawn or degrade silently. A version below the

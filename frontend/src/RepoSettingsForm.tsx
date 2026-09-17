@@ -147,7 +147,7 @@ export const WorktreePrefixRenderer = withJsonFormsControlProps(WorktreePrefixCo
 // closed select: the value is passed verbatim to `claude --model`, which accepts
 // any tier alias or full model id. A datalist offers the common aliases as
 // suggestions while still accepting a typed-in value (e.g. a newly released
-// tier), so a new model needs no mAIestro update. Empty falls back to the schema
+// tier), so a new model needs no mAIestro Code update. Empty falls back to the schema
 // default (`haiku`), surfaced as the placeholder.
 
 /** Suggested `claude --model` aliases. Hints only — any value is accepted, so

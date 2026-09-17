@@ -2,7 +2,7 @@
 //! launch/focus a window for a folder, and — for teardown — find, probe, and close
 //! the window via the macOS accessibility API.
 //!
-//! mAIestro launches sessions but does not host them (see CLAUDE.md): these fns
+//! mAIestro Code launches sessions but does not host them (see CLAUDE.md): these fns
 //! open a real VS Code window whose integrated terminal starts the user-facing
 //! Claude session, and later close it. Window control goes through System Events
 //! (`osascript`) rather than direct Apple events, matching `focus_editor_window`
@@ -60,8 +60,8 @@ pub fn write_vscode_files(work_dir: &Path, work_parent: &str, color: &str, sessi
 
     // Folder-open task that starts a real, user-facing Claude session in the
     // integrated terminal. --remote-control lets the user drive the session
-    // remotely; mAIestro still only launches it, it does not host it. --name
-    // gives the session the same display name mAIestro tracks it by, and the
+    // remotely; mAIestro Code still only launches it, it does not host it. --name
+    // gives the session the same display name mAIestro Code tracks it by, and the
     // trailing `/color <name>` prompt carries the worktree's theme into the
     // session UI so it matches the dashboard row and the title bar.
     //
@@ -75,9 +75,9 @@ pub fn write_vscode_files(work_dir: &Path, work_parent: &str, color: &str, sessi
     // The binary is the **resolved** `claude` path (`tools::resolve_tool`), not a
     // bare `claude` left to PATH (issue #134). The task runs in VS Code's
     // integrated terminal, whose PATH is whatever the VS Code process inherited —
-    // and when mAIestro launched that VS Code from the packaged bundle at login,
+    // and when mAIestro Code launched that VS Code from the packaged bundle at login,
     // that can be the minimal Launch Services PATH with no `claude` on it. The
-    // same `tool_paths.claude` override that pins mAIestro's own drafting calls
+    // same `tool_paths.claude` override that pins mAIestro Code's own drafting calls
     // therefore also decides which binary the session starts with. When nothing
     // concrete resolves, `resolve_tool` yields the bare name, i.e. exactly the
     // previous behavior.
@@ -236,7 +236,7 @@ end tell"#
 }
 
 /// What we could learn about a worktree's VS Code window. The `Denied` case is
-/// critical: when mAIestro lacks Accessibility permission, osascript errors and
+/// critical: when mAIestro Code lacks Accessibility permission, osascript errors and
 /// we genuinely cannot see the window — which must NOT be mistaken for "closed",
 /// or teardown would delete the folder out from under a live VS Code and crash it.
 pub enum WinProbe {
@@ -304,7 +304,7 @@ fn path_at_or_under(path: &str, base: &str) -> bool {
 }
 
 /// Open System Settings → Privacy & Security → Accessibility so the user can
-/// grant mAIestro the permission teardown needs to close VS Code windows.
+/// grant mAIestro Code the permission teardown needs to close VS Code windows.
 /// Triggered only by an explicit user click — we never launch it automatically.
 #[tauri::command]
 pub fn open_accessibility_settings() {
