@@ -14,6 +14,7 @@ mod links;
 mod logging;
 mod naming;
 mod paths;
+mod popover_placement;
 mod plugin;
 mod plugins;
 mod pr;
@@ -35,9 +36,10 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, WindowEvent,
+    Emitter, LogicalPosition, LogicalSize, Manager, WindowEvent,
 };
 
+use popover_placement::{Display, Rect as PlacementRect};
 use plugin::{PluginRegistry, plugins_list_credential_types};
 use plugins::{GitHubPlugin, github_get_repo, github_list_issues, github_list_repos};
 
@@ -47,10 +49,19 @@ use plugins::{GitHubPlugin, github_get_repo, github_list_issues, github_list_rep
 #[derive(Default)]
 struct PopoverState {
     last_auto_hide: Mutex<Option<Instant>>,
-    /// The tray icon's screen rect (physical px), cached from tray events so we
-    /// can position the popover analytically without reading window geometry
-    /// back (which lags a cycle on macOS). `None` until the first tray event.
-    tray_rect: Mutex<Option<(PhysicalPosition<f64>, PhysicalSize<f64>)>>,
+    /// The tray icon's rect, cached from tray events so we can position the
+    /// popover analytically without reading window geometry back (which lags a
+    /// cycle on macOS). `None` until the first tray event.
+    tray: Mutex<Option<TrayCapture>>,
+}
+
+/// A tray rect as tray-icon reports it — physical px at the clicked display's
+/// (unknown) scale — plus the pointer in points sampled at the same event,
+/// which was over the icon and so identifies its display unambiguously.
+#[derive(Clone, Copy)]
+struct TrayCapture {
+    rect: PlacementRect,
+    cursor: Option<(f64, f64)>,
 }
 
 /// Minimum popover size, in logical pixels. Mirrors `minWidth`/`minHeight` on the
@@ -155,126 +166,81 @@ fn persist_settings_size(window: &tauri::Window) {
     }
 }
 
-/// Find the monitor whose bounds contain the given physical point, preferring an
-/// exact hit and falling back to the primary/current monitor. We test rects
-/// ourselves rather than call `monitor_from_point`, which mis-handles the tray
-/// point on a Retina display and returns `None`.
-fn monitor_at(window: &tauri::WebviewWindow, x: i32, y: i32) -> Option<Monitor> {
-    if let Ok(monitors) = window.available_monitors() {
-        for m in monitors {
-            let mp = m.position();
-            let ms = m.size();
-            if x >= mp.x
-                && x < mp.x + ms.width as i32
-                && y >= mp.y
-                && y < mp.y + ms.height as i32
-            {
-                return Some(m);
-            }
-        }
-    }
+/// Snapshot every display in macOS points (see `popover_placement`). tao
+/// reports monitor bounds as points × that monitor's own scale, so dividing by
+/// it recovers the exact point rect.
+fn displays(window: &tauri::WebviewWindow) -> Vec<Display> {
     window
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.current_monitor().ok().flatten())
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let scale = m.scale_factor();
+            let (p, s) = (m.position(), m.size());
+            Display {
+                bounds: PlacementRect {
+                    x: p.x as f64 / scale,
+                    y: p.y as f64 / scale,
+                    w: s.width as f64 / scale,
+                    h: s.height as f64 / scale,
+                },
+                scale,
+            }
+        })
+        .collect()
 }
 
-/// Size the popover to fit its display, position it under the tray icon, and
-/// clamp it fully on-screen — all before `show()`, so a popover larger than the
-/// monitor (a stale/huge saved size, or a small display) is shrunk to fit rather
-/// than cropped, a tray icon near the far-right edge doesn't push it off, and the
-/// window never flashes at the wrong spot. The target is computed analytically
-/// from the cached tray rect, window size, and monitor bounds (all physical px)
-/// rather than by reading the window's live geometry back, which lags a cycle on
-/// macOS and made the placement toggle between opens.
+/// The mouse pointer in macOS points. tao converts `NSEvent.mouseLocation` to
+/// physical px with the *primary* monitor's scale, so divide by that to undo it.
+fn cursor_points(app: &tauri::AppHandle) -> Option<(f64, f64)> {
+    let cursor = app.cursor_position().ok()?;
+    let scale = app.primary_monitor().ok().flatten()?.scale_factor();
+    Some((cursor.x / scale, cursor.y / scale))
+}
+
+/// Size and position the popover under the tray icon, on the tray's display,
+/// fully on-screen — all before `show()`, so it never flashes at the wrong spot.
+/// The math lives in `popover_placement` and runs entirely in macOS points, then
+/// is applied as `LogicalSize`/`LogicalPosition`: tao's physical setters divide
+/// by the window's *current* scale, which put the popover on the wrong display
+/// in mixed-DPI setups (#175). It's computed analytically rather than read back
+/// from the live window, whose geometry lags a cycle on macOS.
 ///
-/// Falls back to the screen's top-right corner — where the tray icon itself
-/// almost always lives on macOS — when we have no cached tray rect yet (e.g.
-/// onboarding finishing, or a single-instance relaunch, before the user has
-/// ever hovered/clicked the tray icon) or can't read the window size. This
-/// deliberately isn't the positioner plugin's own `move_window(TrayCenter)`:
-/// that panics ("Tray position not set") when *its* internal tray cache —
-/// populated only by `on_tray_event`, separate from our own
-/// `PopoverState.tray_rect` — is also empty, which is exactly the case here.
-fn position_popover(window: &tauri::WebviewWindow, tray: Option<(PhysicalPosition<f64>, PhysicalSize<f64>)>) {
-    let (Some((tray_pos, tray_size)), Ok(win)) = (tray, window.outer_size()) else {
-        position_top_right(window);
+/// With no cached tray rect yet (e.g. onboarding finishing, or a single-instance
+/// relaunch, before the user has ever hovered/clicked the tray icon) the popover
+/// is pinned to the top-right of the display under the cursor. This deliberately
+/// isn't the positioner plugin's own `move_window(TrayCenter)`: that panics
+/// ("Tray position not set") when *its* internal tray cache is also empty.
+fn position_popover(window: &tauri::WebviewWindow, tray: Option<TrayCapture>) {
+    let Ok(outer) = window.outer_size() else {
         return;
     };
-    let (mut win_w, mut win_h) = (win.width as i32, win.height as i32);
-    let (tray_x, tray_y, tray_w) = (tray_pos.x as i32, tray_pos.y as i32, tray_size.width as i32);
-
-    let monitor = monitor_at(window, tray_x, tray_y);
-
-    // Shrink to fit the display if the saved size is larger than the monitor, so
-    // the popover can never be cropped regardless of its persisted dimensions.
-    // Use the resulting size in the placement math directly — set_size, like
-    // set_position, isn't reliably readable back on the same cycle on macOS.
-    if let Some(m) = &monitor {
-        let ms = m.size();
-        let fit_w = win_w.min(ms.width as i32);
-        let fit_h = win_h.min(ms.height as i32);
-        if fit_w != win_w || fit_h != win_h {
-            let _ = window.set_size(PhysicalSize::new(fit_w as u32, fit_h as u32));
-            win_w = fit_w;
-            win_h = fit_h;
-        }
-    }
-
-    // TrayCenter (macOS): center horizontally under the icon, drop down from the
-    // menu bar. Mirrors the positioner's own math so the anchor is unchanged.
-    let mut x = tray_x + tray_w / 2 - win_w / 2;
-    let mut y = tray_y - win_h;
-    if y < 0 {
-        y = tray_y;
-    }
-
-    if let Some(monitor) = monitor {
-        let mp = monitor.position();
-        let ms = monitor.size();
-        // Right/bottom limits, floored at the top-left so a window larger than
-        // the screen still pins to the visible corner rather than overshooting.
-        let max_x = (mp.x + ms.width as i32 - win_w).max(mp.x);
-        let max_y = (mp.y + ms.height as i32 - win_h).max(mp.y);
-        x = x.clamp(mp.x, max_x);
-        y = y.clamp(mp.y, max_y);
-    }
-
-    let _ = window.set_position(PhysicalPosition::new(x, y));
-}
-
-/// Small on-screen margin (physical px) kept between the popover and the
-/// monitor's edge when there's no real tray rect to anchor to, matching the
-/// breathing room a tray-anchored placement gets naturally.
-const TOP_RIGHT_MARGIN: i32 = 8;
-
-/// Pin the window to the primary/current monitor's top-right corner —
-/// approximating where its tray icon lives — with no tray rect to anchor to.
-fn position_top_right(window: &tauri::WebviewWindow) {
-    let (Ok(win), Some(monitor)) = (
-        window.outer_size(),
-        window
-            .primary_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| window.current_monitor().ok().flatten()),
-    ) else {
+    let win = outer.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
+    let displays = displays(window);
+    let tray = tray.and_then(|t| popover_placement::tray_to_logical(t.rect, t.cursor, &displays));
+    let cursor = cursor_points(window.app_handle());
+    let Some(p) = popover_placement::place(tray, (win.width, win.height), &displays, cursor) else {
         return;
     };
-    let mp = monitor.position();
-    let ms = monitor.size();
-    let (win_w, win_h) = (win.width as i32, win.height as i32);
-    let x = (mp.x + ms.width as i32 - win_w - TOP_RIGHT_MARGIN).max(mp.x);
-    let y = (mp.y + TOP_RIGHT_MARGIN).min((mp.y + ms.height as i32 - win_h).max(mp.y));
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    tracing::debug!(
+        tray = ?tray.map(|(r, _)| r),
+        display = p.display,
+        scale = displays[p.display].scale,
+        position = ?p.position,
+        size = ?p.size,
+        "placing popover"
+    );
+    if let Some((w, h)) = p.size {
+        let _ = window.set_size(LogicalSize::new(w, h));
+    }
+    let _ = window.set_position(LogicalPosition::new(p.position.0, p.position.1));
 }
 
 pub(crate) fn show_popover(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let tray = app
             .try_state::<PopoverState>()
-            .and_then(|s| *s.tray_rect.lock().unwrap());
+            .and_then(|s| *s.tray.lock().unwrap());
         position_popover(&window, tray);
         let _ = window.show();
         let _ = window.set_focus();
@@ -485,8 +451,14 @@ fn main() {
                     | TrayIconEvent::Move { rect, .. } = &event
                     {
                         if let Some(state) = app.try_state::<PopoverState>() {
-                            *state.tray_rect.lock().unwrap() =
-                                Some((rect.position.to_physical(1.0), rect.size.to_physical(1.0)));
+                            let (pos, size) = (
+                                rect.position.to_physical::<f64>(1.0),
+                                rect.size.to_physical::<f64>(1.0),
+                            );
+                            *state.tray.lock().unwrap() = Some(TrayCapture {
+                                rect: PlacementRect { x: pos.x, y: pos.y, w: size.width, h: size.height },
+                                cursor: cursor_points(app),
+                            });
                         }
                     }
 

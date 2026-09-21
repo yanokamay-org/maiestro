@@ -177,6 +177,16 @@ body {
   padding: 14px 20px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  position: relative;
+}
+
+/* The show-hidden (eye) toggle sits at the window's horizontal center, out of
+   the flex flow, so the gear alone takes the right edge. */
+.panel-header-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-left: 0;
 }
 
 .panel-logo {
