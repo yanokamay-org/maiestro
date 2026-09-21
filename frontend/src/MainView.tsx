@@ -593,7 +593,7 @@ export function MainView() {
         <LogoIcon className="panel-logo" aria-hidden="true" />
         <h1>m<span className="ai">AI</span>estro Code</h1>
         <button
-          className={`icon-btn ${showHidden ? "icon-btn--active" : ""}`}
+          className={`icon-btn panel-header-center ${showHidden ? "icon-btn--active" : ""}`}
           onClick={() => setShowHidden((v) => !v)}
           title={showHidden ? "Hide hidden items" : "Show hidden items"}
           aria-label="Toggle hidden items"
