@@ -30,6 +30,7 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 - **Color coded sessions.** Each session is assigned a color and emojis for remote control sessions, so it is easy to find across multiple windows.
 - **Per-identity GitHub access.** GitHub tokens are stored in the macOS
   Keychain per identity; each repo is tracked under the identity you choose.
+  [Security and privacy](#security-and-privacy) covers what leaves your Mac.
 
 ## Installation
 
@@ -238,6 +239,91 @@ Point a `$schema` key at it for autocomplete when hand-editing.
 
 Logs are written to `~/Library/Logs/com.maiestro.app/lYYYYMM/maiestro-YYYYMMDD.log`
 (UTC-dated, daily rollover) and are viewable from the app's Logs window.
+
+## Security and privacy
+
+### Security
+
+**Only track repositories you trust.** Spawning a workspace runs code from
+the repository and from your own settings before you see any of it, and the
+agent that then works in it is steered by files the repository controls:
+
+- **Your `post_spawn_commands` run in the new worktree** through your login
+  shell (`$SHELL -lc`) with your full ambient environment, before the editor
+  opens. Anything they invoke (`pnpm install`, `make setup`, …) executes
+  whatever the checked-out repo provides.
+- **Your `env_files` are copied from the clone into every worktree**, so any
+  secrets in those `.env` files are present in each workspace you spawn.
+- **VS Code opens with `--disable-workspace-trust`.** The repo's own `.vscode`
+  configuration and any workspace-triggered extension behavior run without the
+  "Do you trust the authors?" prompt.
+- **The Claude session is ordinary Claude Code**, launched interactively with
+  its standard permission prompts; mAIestro Code passes no permission-bypass
+  flags. The repo's committed `CLAUDE.md`, `.claude/` settings, and hooks apply
+  to that session exactly as if you had run `claude` there yourself, so a
+  malicious repository can influence the agent. That is Claude Code's own trust
+  model, not something mAIestro Code adds or removes.
+- **mAIestro Code's own drafting calls run with all tools disabled.** The
+  issue, label, and PR-description drafts run `claude -p … --tools ""` in the
+  repo, so prompt injection from your idea text, an issue body, a diff, or the
+  repo's `CLAUDE.md` can at worst produce a bad draft — never read files, run
+  commands, or fetch URLs.
+
+You review a drafted issue before it is created. The drafted PR is filed
+directly as a GitHub draft pull request, so check its description on GitHub
+before marking it ready. The agent's output is in front of you in the editor
+or terminal as it works. Read it.
+
+### Privacy
+
+mAIestro Code runs entirely on your Mac and has no servers of its own.
+
+**What leaves your machine, and to whom**
+
+- **GitHub** (`api.github.com`), authenticated with the identity's token from
+  the Keychain: listing repos and issues, creating and editing issues,
+  assigning the issue to the token's user on spawn, posting the spawn comment,
+  and creating, reading, and merging pull requests. See
+  [GitHub token](#github-token).
+- **The spawn comment** posted on the issue names the branch, the session
+  label, and your **local worktree path**, which includes your macOS
+  username. The per-repo `comment_on_spawn` setting turns it off; assignment
+  is not gated by it (see [`docs/settings.md`](docs/settings.md)).
+- **Claude Code / Anthropic**, under your own `claude` login: the drafting
+  calls send your idea text, the issue title and body, and — for PR drafts —
+  the branch's commit log and its diff against the base branch (or a
+  file-level summary when the diff is large), plus whatever repo context
+  `claude` loads itself, such as `CLAUDE.md`. The interactive session is plain
+  Claude Code, governed by Anthropic's terms for your account.
+- **Remote control.** Sessions are launched with Claude Code's
+  `--remote-control` flag so you can reach them from your Claude account on
+  other devices. See the
+  [Claude Code docs](https://code.claude.com/docs/en/remote-control) for what
+  that involves.
+- **Your git remotes.** Pushes and fetches inside a session use your ambient
+  git auth and go wherever the repo's remotes point; mAIestro Code is not in
+  that path.
+
+**What stays local**
+
+- Configuration under `~/.maiestro/` — identities, per-repo settings, workspace
+  records, live status. See [Configuration](#configuration).
+- **The GitHub token lives only in the macOS Keychain.** It is read at call
+  time, sent only in the `Authorization` header to `api.github.com`, never
+  injected into a spawned session, and never written to disk or to the logs.
+- **Logs** at `~/Library/Logs/com.maiestro.app/` record command invocations —
+  issue numbers, branch names, worktree paths, GitHub URLs — and the message
+  of a failed tool call reported by a session hook. Never credentials. They
+  are not pruned automatically; delete them whenever you like.
+- **Generated files in each worktree**: `.claude/settings.local.json` (the
+  status hooks) and `.vscode/` (theme and launch task), both excluded from
+  git.
+
+**What mAIestro Code never does**
+
+- No telemetry, analytics, crash reporting, or usage tracking of any kind.
+- No update check or phone-home. Releases are downloaded by hand from GitHub.
+- No endpoints other than `api.github.com` and the local `claude` CLI.
 
 ## Development
 
