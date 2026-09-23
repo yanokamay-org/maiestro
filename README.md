@@ -1,5 +1,7 @@
 # mAIestro Code
 
+[![CI](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml?query=branch%3Amain) [![Latest release](https://img.shields.io/github/v/release/yanokamay-org/maiestro)](https://github.com/yanokamay-org/maiestro/releases/latest) [![License: MIT](https://img.shields.io/github/license/yanokamay-org/maiestro)](LICENSE)
+
 ## Why mAIestro Code
 
 Getting real leverage out of AI coding means running **several agent sessions
@@ -11,6 +13,11 @@ which sessions need attention.
 mAIestro Code is deliberately **not** another place to chat with an agent. It
 doesn't get in the way of your session interactions — the conversation still
 happens in your editor or terminal.
+
+## Demo Videos
+
+- [Demo](https://www.youtube.com/watch?v=sbh8JUK22lE)
+- [Walkthrough](https://www.youtube.com/watch?v=i_thfv_RaeA)
 
 ## What it is
 
