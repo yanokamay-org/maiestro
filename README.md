@@ -1,6 +1,6 @@
 # mAIestro Code
 
-[![CI](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yanokamay-org/maiestro/actions/workflows/ci.yml?query=branch%3Amain) [![Latest release](https://img.shields.io/github/v/release/yanokamay-org/maiestro)](https://github.com/yanokamay-org/maiestro/releases/latest) [![License: MIT](https://img.shields.io/github/license/yanokamay-org/maiestro)](LICENSE)
 
 ## Why mAIestro Code
 
