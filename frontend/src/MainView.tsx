@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
+import { api, AvailableUpdate, SettingsProblem, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
 import {
   ActiveSessions,
   furtherPhase,
@@ -15,6 +15,8 @@ import { filterIssues } from "./lib/issues";
 import { useTauriListen } from "./hooks/useTauriListen";
 import { ResizeGrips } from "./components/ResizeGrips";
 import { DismissibleError } from "./components/DismissibleError";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { SettingsProblemBanner } from "./components/SettingsProblemBanner";
 import { HideCommandButton, SnoozeLabel } from "./components/HideControls";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { HideSnoozeDialog } from "./components/HideSnoozeDialog";
@@ -123,6 +125,26 @@ export function MainView() {
     }).catch(() => {});
   }, []);
 
+  // The backend's update check (#182) runs on its own clock; the popover just
+  // reads its verdict on each show. A dismiss clears it locally right away and
+  // the backend remembers the version, so the next read agrees.
+  const [update, setUpdate] = useState<AvailableUpdate | null>(null);
+  const refreshUpdate = useCallback(() => {
+    api.updateStatus().then((s) => setUpdate(s.available)).catch(() => {});
+  }, []);
+  const dismissUpdate = useCallback((version: string) => {
+    setUpdate(null);
+    api.updateDismiss(version).catch(() => {});
+  }, []);
+
+  // An unreadable ~/.maiestro/settings.json (hand-edit typo). While it stands
+  // the backend refuses every write to it, so say so where the user is looking;
+  // re-read on each show, so fixing the file clears the banner on the next open.
+  const [settingsProblem, setSettingsProblem] = useState<SettingsProblem | null>(null);
+  const refreshSettingsProblem = useCallback(() => {
+    api.appSettingsProblem().then(setSettingsProblem).catch(() => {});
+  }, []);
+
   const refreshAll = useCallback(() => {
     api.listRepos().then((list) => {
       setRepos(list);
@@ -136,7 +158,9 @@ export function MainView() {
     }).catch(() => {});
     refreshSessions();
     refreshStatuses();
-  }, [refreshSessions, refreshStatuses]);
+    refreshUpdate();
+    refreshSettingsProblem();
+  }, [refreshSessions, refreshStatuses, refreshUpdate, refreshSettingsProblem]);
 
   useEffect(() => {
     refreshAll();
@@ -605,6 +629,9 @@ export function MainView() {
           <GearIcon />
         </button>
       </header>
+
+      {settingsProblem && <SettingsProblemBanner problem={settingsProblem} />}
+      {update && <UpdateBanner update={update} onDismiss={dismissUpdate} />}
 
       <div className="work-list">
         {repos.length === 0 ? (

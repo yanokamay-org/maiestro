@@ -24,15 +24,19 @@ pub struct TokenInfo {
 
 // ── Reusable REST client ────────────────────────────────────────────────────────
 
-/// Authenticated GitHub REST client, scoped to a single identity's token.
-/// Holds the token and a shared `reqwest::Client`; methods are thin wrappers
-/// over the v3 API so callers (issue listing, spawning, …) don't re-implement
-/// auth, headers, and error decoding.
+/// GitHub REST client, normally scoped to a single identity's token (see
+/// [`GitHub::for_identity`]); [`GitHub::anonymous`] builds the one unauthenticated
+/// variant, used solely by the update check. Holds the token and a shared
+/// `reqwest::Client`; methods are thin wrappers over the v3 API so callers
+/// (issue listing, spawning, …) don't re-implement auth, headers, and error
+/// decoding.
 pub struct GitHub {
     client: reqwest::Client,
-    token: String,
+    /// `None` only for the anonymous client — no `Authorization` header is sent.
+    token: Option<String>,
     /// The identity this client authenticates as — used only to scope the ETag
     /// cache so two identities never share a cached body for the same URL.
+    /// [`ANONYMOUS_IDENTITY`] for the unauthenticated client.
     identity_id: String,
     /// API root, e.g. `https://api.github.com`. A field (not a hardcoded literal
     /// at each call site) so tests can point the client at a local `wiremock`
@@ -43,6 +47,23 @@ pub struct GitHub {
 /// The real GitHub REST API root. Every production client uses this; only tests
 /// override it (via [`GitHub::for_test`]).
 const DEFAULT_BASE_URL: &str = "https://api.github.com";
+
+/// ETag-cache scope for [`GitHub::anonymous`]. Not a real identity name — it
+/// contains a character `identities.json` never allows, so it can't collide.
+const ANONYMOUS_IDENTITY: &str = "<anonymous>";
+
+/// The `reqwest` client every [`GitHub`] shares: a deliberately generic
+/// `User-Agent` (GitHub requires one; it carries no version so an anonymous
+/// request reveals nothing about the install) and a bound on every call so a
+/// black-holed connection fails with an error the UI can degrade on instead of
+/// stalling a command forever.
+fn build_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("maiestro/0.1")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())
+}
 
 /// Process-wide ETag cache for conditional GETs: key → (etag, raw JSON body).
 /// Keyed by identity + URL so tokens don't share cached bodies. Serving a `304
@@ -66,17 +87,25 @@ impl GitHub {
         .await
         .map_err(|e| format!("keychain read task failed: {e}"))?
         .map_err(|_| "No GitHub token found for this identity. Set one in Settings.".to_string())?;
-        let client = reqwest::Client::builder()
-            .user_agent("maiestro/0.1")
-            // Bound every GitHub call so a black-holed connection fails with an
-            // error the UI can degrade on instead of stalling a command forever.
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| e.to_string())?;
         Ok(Self {
-            client,
-            token,
+            client: build_client()?,
+            token: Some(token),
             identity_id: identity_id.to_string(),
+            base_url: DEFAULT_BASE_URL.to_string(),
+        })
+    }
+
+    /// An **unauthenticated** client: no Keychain read, no `Authorization` header.
+    /// Used only by the update check (`crate::update_check`), which must work
+    /// with no identity configured and must never spend anyone's token. Requests
+    /// still flow through [`GitHub::send`], so the one-choke-point logging holds.
+    /// GitHub allows 60 unauthenticated requests per hour per IP; callers must
+    /// stay well inside that (and a `304` from the ETag cache costs nothing).
+    pub fn anonymous() -> Result<Self, String> {
+        Ok(Self {
+            client: build_client()?,
+            token: None,
+            identity_id: ANONYMOUS_IDENTITY.to_string(),
             base_url: DEFAULT_BASE_URL.to_string(),
         })
     }
@@ -90,27 +119,43 @@ impl GitHub {
     pub fn for_test(base_url: &str) -> Self {
         Self {
             client: reqwest::Client::new(),
-            token: "test-token".to_string(),
+            token: Some("test-token".to_string()),
             identity_id: format!("test-{}", uuid::Uuid::new_v4()),
             base_url: base_url.trim_end_matches('/').to_string(),
         }
     }
 
+    /// [`GitHub::anonymous`] pointed at a local mock server. The cache scope is
+    /// still randomized so tests never share cached bodies.
+    #[cfg(test)]
+    pub fn for_test_anonymous(base_url: &str) -> Self {
+        Self {
+            token: None,
+            identity_id: format!("test-anon-{}", uuid::Uuid::new_v4()),
+            ..Self::for_test(base_url)
+        }
+    }
+
     /// Build a full request URL from an API `path` (which must start with `/`),
     /// rooted at this client's [`base_url`](Self::base_url).
-    fn api(&self, path: &str) -> String {
+    pub(crate) fn api(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
 
-    /// A request builder pre-loaded with auth and the standard GitHub headers.
+    /// A request builder pre-loaded with auth (when this client has a token) and
+    /// the standard GitHub headers.
     pub fn req(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
-        self.client
+        let rb = self
+            .client
             .request(method, url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        match &self.token {
             // The token goes only into this Authorization header. It must never
             // be logged — `send` below logs the method + URL but not headers.
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
+            Some(token) => rb.bearer_auth(token),
+            None => rb,
+        }
     }
 
     /// Send a built request, logging method + URL + resulting status at `info`.
@@ -919,5 +964,25 @@ mod tests {
 
         let login = GitHub::for_test(&server.uri()).authenticated_login().await.unwrap();
         assert_eq!(login, "octocat");
+    }
+
+    #[tokio::test]
+    async fn anonymous_client_sends_no_authorization_header() {
+        // The update check's client must never carry a token — a request with an
+        // Authorization header gets no matching mock, so the call would fail.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/o/r/releases/latest"))
+            .and(header("accept", "application/vnd.github+json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "tag_name": "v1.0.0" })))
+            .mount(&server)
+            .await;
+
+        let gh = GitHub::for_test_anonymous(&server.uri());
+        let v = gh.get_json(&gh.api("/repos/o/r/releases/latest")).await.unwrap();
+        assert_eq!(v["tag_name"], "v1.0.0");
+        let sent = server.received_requests().await.unwrap();
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].headers.contains_key("authorization"), "anonymous request carried a token");
     }
 }

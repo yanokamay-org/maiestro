@@ -66,6 +66,26 @@ pub struct ToolPaths {
     pub code: Option<String>,
 }
 
+/// Persisted state of the background update check (`crate::update_check`).
+/// Machine-managed and hidden from the Settings form. Timestamps are RFC 3339
+/// strings (not parsed types) so a hand-edited or malformed value degrades to
+/// "unknown" at the point of use rather than failing the whole settings load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateCheckState {
+    /// When the last *successful* check ran (UTC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    /// Latest published release seen by that check, e.g. `0.4.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    /// When GitHub says that release was published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_published_at: Option<String>,
+    /// The version whose banner the user dismissed; hidden for that version only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_version: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
     /// Saved popover size. `None` (absent) means "use the tauri.conf.json default".
@@ -95,6 +115,10 @@ pub struct AppSettings {
     /// onboarding can grow more options without changing the gate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onboarding_completed: Option<bool>,
+    /// Background update-check state (issue #182). Machine-managed, hidden from
+    /// the Settings form; `None` (absent) means never checked, nothing dismissed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_check: Option<UpdateCheckState>,
 }
 
 /// The user's explicit path override for a directly-invoked tool
@@ -151,7 +175,9 @@ fn settings_path() -> PathBuf {
     crate::paths::maiestro_dir("settings.json")
 }
 
-/// Read the global settings, returning defaults if the file is absent or unreadable.
+/// Read the global settings, returning defaults if the file is absent or
+/// unreadable. Lenient by design for hot-path *reads* (theme, tool paths); it
+/// must never feed a write — see [`update`], which loads strictly.
 pub fn load() -> AppSettings {
     std::fs::read_to_string(settings_path())
         .ok()
@@ -202,9 +228,21 @@ static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 /// concurrent persister can't clobber the field `f` just changed. Use this for
 /// every partial update (window sizes, theme, tool paths) instead of a bare
 /// `load()` + mutate + `save()`.
+///
+/// **Never merges into a file it can't read.** The load here is the strict
+/// [`load_validated`], not the lenient [`load`]: a present-but-unparsable file
+/// (a hand edit with a trailing comma, a missing brace) must not be "merged"
+/// into defaults and written back, which would silently erase every other
+/// setting. Instead this logs an error naming the file and returns it
+/// (`InvalidData`), leaving the file byte-for-byte as it was, so the user can
+/// fix it — the Settings window shows the same error as a banner. A *missing*
+/// file still starts from defaults.
 pub fn update<F: FnOnce(&mut AppSettings)>(f: F) -> std::io::Result<()> {
     let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut settings = load();
+    let mut settings = load_validated().map_err(|e| {
+        tracing::error!(error = %e, "refusing to write settings.json over an unreadable file; fix or delete it");
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    })?;
     f(&mut settings);
     save(&settings)
 }
@@ -234,11 +272,32 @@ pub fn app_settings_get() -> Result<AppSettings, String> {
     load_validated()
 }
 
+/// Why `~/.maiestro/settings.json` can't be used right now, if it can't: the
+/// popover polls this on every show and renders a warning banner, so a
+/// hand-edit typo is visible where the user is — not only in the Settings
+/// window's Preferences panel or the log. `None` when the file is fine or absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SettingsProblem {
+    /// Absolute path of the file, for the banner's Reveal button.
+    pub path: String,
+    /// The `load_validated` error (names the file and the parse/schema failure).
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn app_settings_problem() -> Option<SettingsProblem> {
+    crate::log_invoke_debug!("app_settings_problem");
+    load_validated().err().map(|message| SettingsProblem {
+        path: settings_path().display().to_string(),
+        message,
+    })
+}
+
 /// Persist the settings edited in the Settings form. The form owns only the
 /// user-editable fields (`theme`, `tool_paths`, `terminal_font_family`,
-/// `launch_at_login`); the machine-managed window sizes
-/// are load-merged from disk so a concurrent size save from another window isn't
-/// clobbered. Validates before writing, and broadcasts `theme-changed` when the
+/// `launch_at_login`); the machine-managed window sizes, onboarding flag, and
+/// update-check state are load-merged from disk so a concurrent save from
+/// another window or the update checker isn't clobbered. Validates before writing, and broadcasts `theme-changed` when the
 /// theme actually changed so every window re-applies live.
 #[tauri::command]
 pub fn app_settings_set(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
@@ -264,8 +323,8 @@ pub fn app_settings_set(app: tauri::AppHandle, settings: AppSettings) -> Result<
         current.tool_paths = settings.tool_paths.clone();
         current.terminal_font_family = settings.terminal_font_family.clone();
         current.launch_at_login = settings.launch_at_login;
-        // onboarding_completed / window / settings_window are deliberately kept
-        // from disk (machine-managed).
+        // onboarding_completed / window / settings_window / update_check are
+        // deliberately kept from disk (machine-managed).
     })
     .map_err(|e| e.to_string())?;
 
@@ -450,6 +509,12 @@ mod tests {
             terminal_font_family: Some("Menlo, monospace".into()),
             launch_at_login: Some(true),
             onboarding_completed: Some(true),
+            update_check: Some(UpdateCheckState {
+                checked_at: Some("2026-09-24T14:02:11Z".into()),
+                latest_version: Some("0.4.0".into()),
+                latest_published_at: Some("2026-09-10T18:30:00Z".into()),
+                dismissed_version: Some("0.4.0".into()),
+            }),
         };
         let value = serde_json::to_value(&populated).unwrap();
         let struct_keys: BTreeSet<String> =
@@ -465,6 +530,52 @@ mod tests {
         let default = serde_json::to_value(AppSettings::default()).unwrap();
         validate_against_schema(&default)
             .unwrap_or_else(|e| panic!("default AppSettings rejected by schema: {e}"));
+    }
+
+    /// `update` must not turn a hand-edit typo into a wipe: a present but
+    /// unparsable file is left untouched and the write fails loudly (#182 found
+    /// the update check's first persist erasing every other setting this way).
+    #[test]
+    fn update_refuses_to_overwrite_an_unparsable_file() {
+        let home = crate::testutil::TempHome::new();
+        let path = home.join("settings.json");
+        let broken = "{ \"theme\": \"dark\", }"; // trailing comma
+        std::fs::write(&path, broken).unwrap();
+
+        let err = update(|s| s.launch_at_login = Some(true)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("settings.json"), "{err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "file must be untouched");
+
+        // A file that parses but fails the schema is refused the same way.
+        std::fs::write(&path, "{ \"theme\": \"sepia\" }").unwrap();
+        assert!(update(|s| s.launch_at_login = Some(true)).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ \"theme\": \"sepia\" }");
+    }
+
+    /// The popover's banner source: `None` for a missing or valid file, the
+    /// path + reason for a broken one.
+    #[test]
+    fn problem_reports_only_a_broken_file() {
+        let home = crate::testutil::TempHome::new();
+        assert_eq!(app_settings_problem(), None, "missing file is not a problem");
+        std::fs::write(home.join("settings.json"), "{ \"theme\": \"dark\" }").unwrap();
+        assert_eq!(app_settings_problem(), None, "valid file is not a problem");
+        std::fs::write(home.join("settings.json"), "{ nope").unwrap();
+        let problem = app_settings_problem().expect("broken file is reported");
+        assert_eq!(problem.path, home.join("settings.json").display().to_string());
+        assert!(problem.message.contains("not valid JSON"), "{}", problem.message);
+    }
+
+    /// A missing file is not an error for `update`: it starts from defaults and
+    /// creates the file with only the field being set.
+    #[test]
+    fn update_creates_a_missing_file_from_defaults() {
+        let home = crate::testutil::TempHome::new();
+        update(|s| s.theme = Some(Theme::Light)).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(saved, json!({ "theme": "light" }));
     }
 
     /// A partial file (only `theme`) validates — every field is optional.

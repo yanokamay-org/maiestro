@@ -31,6 +31,7 @@ The detailed how-it-works for each subsystem lives in `docs/`. **Read the releva
 | Session status pills, the hook helper (`hooks.rs`), `last_error`, the `creating` state | `docs/session-status.md` |
 | Worktree colors/emoji, the Claude session color, the generated `.vscode` files | `docs/theming.md` |
 | How the `claude` / `git` / `code` binaries are found, `tool_paths` overrides (`tools.rs`) | `docs/tool-resolution.md` |
+| The background update check and the popover's update banner (`update_check.rs`) | `docs/update-check.md` |
 
 ## Architectural decisions
 
@@ -44,7 +45,7 @@ The spawn subsystem is split along its natural seams so each file owns one respo
 - **`editor.rs`** — VS Code workspace-file generation, launch/focus, and the teardown window control (AppleScript/`lsof`).
 - **`drafting.rs`** — the AI-drafting calls (`claude_text`, issue/short-label drafting, `ClaudeActivity`).
 - **`pr.rs`** — the PR lifecycle commands (`session_pr`, `session_create_pr`, `session_pr_checks`, `session_work_state`, `session_merge_pr`).
-- **`health.rs`** — the Check Health diagnostics; **`tools.rs`** — external tool resolution; **`app_settings.rs`** / **`repo_settings.rs`** — the two settings files and their schemas; **`about.rs`** — version/build info.
+- **`health.rs`** — the Check Health diagnostics; **`update_check.rs`** — the background newer-release poll; **`tools.rs`** — external tool resolution; **`app_settings.rs`** / **`repo_settings.rs`** — the two settings files and their schemas; **`about.rs`** — version/build info.
 - **Shared helpers**: `gitops.rs` (`git()` / `local_branch_exists()`), `naming.rs` (slug/label helpers), `repo_context.rs` (the settings→identity→GitHub-client resolution + `validated_cloned_repo`), and `tools::{snippet, shell_quote}`.
 
 ### mAIestro Code launches sessions; it does not host them
@@ -90,7 +91,7 @@ mAIestro Code shells out to `claude`, `git`, and the VS Code `code` CLI *itself*
 
 ### Settings live in `~/.maiestro/`; defaults live only in the JSON Schemas
 
-Per-repo settings are in `~/.maiestro/repos/<owner>-<name>.json` (`repo_settings.rs`), global app settings in `~/.maiestro/settings.json` (`app_settings.rs`). Both are human-editable and dotfile-manageable, and each has a **hand-written JSON Schema** in `backend/schemas/` that is the spec for the format — deliberately not generated from the Rust structs. A `schema_matches_struct` test on each keeps schema and struct in sync (adding a field to one without the other fails `cargo test`), loading validates against the schema and fails loudly on a corrupt file rather than silently using defaults, and unknown fields are tolerated for forward-compat. **Defaults are declared as JSON Schema `default` keywords only** and read from there by both the backend (`schema_default`) and the Settings window's JSON Forms renderer; there is no hardcoded copy in Rust or TS. Tracking a repo requires no affiliation with it — anything the identity's token can read works. Field-by-field reference, the forms, launch at login, and the About block: `docs/settings.md`.
+Per-repo settings are in `~/.maiestro/repos/<owner>-<name>.json` (`repo_settings.rs`), global app settings in `~/.maiestro/settings.json` (`app_settings.rs`). Both are human-editable and dotfile-manageable, and each has a **hand-written JSON Schema** in `backend/schemas/` that is the spec for the format — deliberately not generated from the Rust structs. A `schema_matches_struct` test on each keeps schema and struct in sync (adding a field to one without the other fails `cargo test`), loading validates against the schema and fails loudly on a corrupt file rather than silently using defaults, no writer merges into a corrupt file (`app_settings::update` refuses and logs rather than resetting it), and unknown fields are tolerated for forward-compat. **Defaults are declared as JSON Schema `default` keywords only** and read from there by both the backend (`schema_default`) and the Settings window's JSON Forms renderer; there is no hardcoded copy in Rust or TS. Tracking a repo requires no affiliation with it — anything the identity's token can read works. Field-by-field reference, the forms, launch at login, and the About block: `docs/settings.md`.
 
 ### Releases are signed, notarized, and cut by the `/release` skill
 
@@ -119,6 +120,10 @@ Because mAIestro Code does not host the session, its working/waiting state comes
 ### Repo health check never mutates the repo
 
 **Check Health** in a repo's Settings form runs per-repo diagnostics (cloned repo, git, claude login + model, GitHub token & permissions, session editor, env files, terminal font) and streams them into a modal. It is **informational only** — it never blocks spawning — and GitHub write access is **derived** from token scopes / the repo's `permissions.push` flag, never exercised with a throwaway issue or PR. Details: `docs/health-check.md`.
+
+### The update check is an anonymous, read-only poll of GitHub Releases
+
+`update_check.rs` asks `api.github.com` for this repo's latest published release every ~12 hours (and once ~15 s after launch when the persisted `checked_at` is older than that) and offers it in the popover as a dismissable banner — only when it is strictly newer than the running version and has been public for at least 5 days. It uses `GitHub::anonymous()` — **no identity token, ever** — so it works with no identity configured and reveals nothing about the install (the generic user agent carries no version); it still goes through the `GitHub::send` choke point, so the logging invariant holds. It never auto-downloads or installs: the banner opens the release page. Any failure is logged at `warn` and the previous result stands. The README's privacy section describes this request and must stay accurate if it changes. Details: `docs/update-check.md`.
 
 ### Launch at login is a per-user LaunchAgent, driven from Rust
 

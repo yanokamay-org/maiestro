@@ -59,6 +59,29 @@
     "onboarding_completed": {
       "type": ["boolean", "null"],
       "description": "Machine-managed. Whether the one-time onboarding flow has been completed; set once (to true) when the onboarding dialog is dismissed, so it never reappears. Gates the first-run onboarding window. Not user-editable in the Settings form. null/absent = not yet onboarded."
+    },
+    "update_check": {
+      "type": ["object", "null"],
+      "title": "UpdateCheck",
+      "description": "Machine-managed state of the background update check (the unauthenticated poll of this app's GitHub Releases, every ~12 hours). Not user-editable in the Settings form. null/absent = never checked, nothing dismissed.",
+      "properties": {
+        "checked_at": {
+          "type": ["string", "null"],
+          "description": "RFC 3339 UTC timestamp of the last successful check. Decides whether the next launch checks right away (absent or older than the interval) or waits."
+        },
+        "latest_version": {
+          "type": ["string", "null"],
+          "description": "Semver of the latest published release seen by the last successful check, e.g. \"0.4.0\" (tag without the v)."
+        },
+        "latest_published_at": {
+          "type": ["string", "null"],
+          "description": "RFC 3339 timestamp GitHub reported for that release's publication; the banner waits until this is at least 5 days old."
+        },
+        "dismissed_version": {
+          "type": ["string", "null"],
+          "description": "The version whose update banner the user dismissed. The banner stays hidden for exactly that version and returns for any newer one."
+        }
+      }
     }
   }
 }

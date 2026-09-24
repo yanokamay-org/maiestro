@@ -29,6 +29,7 @@ mod status;
 mod testutil;
 mod theming;
 mod tools;
+mod update_check;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -368,10 +369,13 @@ fn main() {
             app_settings::app_settings_get_theme,
             app_settings::app_settings_schema,
             app_settings::app_settings_get,
+            app_settings::app_settings_problem,
             app_settings::app_settings_set,
             app_settings::onboarding_complete,
             tools::tools_resolved,
             about::app_version,
+            update_check::update_check_status,
+            update_check::update_dismiss,
         ])
         .setup(|app| {
             // Menu-bar-only: no dock icon on macOS.
@@ -415,6 +419,11 @@ fn main() {
                 }
                 Err(e) => tracing::error!(error = %e, "status watcher failed to start"),
             }
+
+            // Background "newer release available?" poll (issue #182): seeds
+            // its state from settings.json and checks GitHub Releases every
+            // ~12h, unauthenticated. See update_check.rs / docs/update-check.md.
+            update_check::start(app.handle().clone());
 
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let logs = MenuItem::with_id(app, "logs", "Show Logs", true, None::<&str>)?;

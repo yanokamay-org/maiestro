@@ -229,7 +229,7 @@ with dotfile tooling. The Settings window is the GUI over the same files.
 | --- | --- |
 | `identities.json` | The known identity names and the optional default (the tokens themselves live in the macOS Keychain, never here) |
 | `repos/<owner>-<name>.json` | Per-repo settings (see below) |
-| `settings.json` | App-wide settings: theme (`light`/`dark`/`system`), CLI tool-path overrides, terminal font, launch-at-login, popover size |
+| `settings.json` | App-wide settings: theme (`light`/`dark`/`system`), CLI tool-path overrides, terminal font, launch-at-login, popover size, update-check state |
 | `sessions/` / `status/` | Workspace records and live session status (managed by the app) |
 
 Per-repo settings cover the local clone path (`cloned_repo_dir`), where
@@ -292,6 +292,10 @@ mAIestro Code runs entirely on your Mac and has no servers of its own.
   assigning the issue to the token's user on spawn, posting the spawn comment,
   and creating, reading, and merging pull requests. See
   [GitHub token](#github-token).
+- **GitHub** (`api.github.com`), **unauthenticated**: about every 12 hours the
+  app fetches the latest release of `yanokamay-org/maiestro` to tell you when
+  a newer version is out. The request carries no token, no account or machine
+  identifier. Details in [`docs/update-check.md`](docs/update-check.md).
 - **The spawn comment** posted on the issue names the branch, the session
   label, and your **local worktree path**, which includes your macOS
   username. The per-repo `comment_on_spawn` setting turns it off; assignment
@@ -329,7 +333,8 @@ mAIestro Code runs entirely on your Mac and has no servers of its own.
 **What mAIestro Code never does**
 
 - No telemetry, analytics, crash reporting, or usage tracking of any kind.
-- No update check or phone-home. Releases are downloaded by hand from GitHub.
+- No auto-update, telemetry, or phone-home beyond that version check.
+  Releases are still downloaded and installed by hand from GitHub.
 - No endpoints other than `api.github.com` and the local `claude` CLI.
 
 ## Development
