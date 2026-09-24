@@ -177,6 +177,8 @@ pub fn record(snapshot: &Mutex<Snapshot>, latest: LatestRelease, now: DateTime<U
     };
     *snapshot.lock().unwrap_or_else(|e| e.into_inner()) =
         Snapshot { latest: Some(latest), checked_at: Some(now) };
+    // `update` refuses to merge into an unreadable file (it would erase every
+    // other setting), so this fails loudly instead when settings.json is broken.
     if let Err(e) = app_settings::update(|s| {
         let dismissed = s.update_check.as_ref().and_then(|u| u.dismissed_version.clone());
         s.update_check = Some(UpdateCheckState { dismissed_version: dismissed, ..persisted });
@@ -211,7 +213,13 @@ async fn run_once(app: &tauri::AppHandle) {
 /// Seed the managed snapshot from disk and start the polling task. Called once
 /// from `setup()`; the task lives as long as the app.
 pub fn start(app: tauri::AppHandle) {
-    let settings = app_settings::load();
+    // Strict load, so an unreadable settings.json is *said* here rather than
+    // silently treated as "never checked" (which would make the check run 15 s
+    // after every launch and fail to persist each time — see `record`).
+    let settings = app_settings::load_validated().unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "update check: settings.json unreadable; starting from scratch and results won't persist until it is fixed");
+        Default::default()
+    });
     let snapshot = Snapshot::from_persisted(settings.update_check.as_ref());
     let first = next_delay(snapshot.checked_at, Utc::now());
     app.manage(Mutex::new(snapshot));

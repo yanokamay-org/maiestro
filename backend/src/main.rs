@@ -369,6 +369,7 @@ fn main() {
             app_settings::app_settings_get_theme,
             app_settings::app_settings_schema,
             app_settings::app_settings_get,
+            app_settings::app_settings_problem,
             app_settings::app_settings_set,
             app_settings::onboarding_complete,
             tools::tools_resolved,

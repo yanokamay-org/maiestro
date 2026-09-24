@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, AvailableUpdate, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
+import { api, AvailableUpdate, SettingsProblem, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
 import {
   ActiveSessions,
   furtherPhase,
@@ -16,6 +16,7 @@ import { useTauriListen } from "./hooks/useTauriListen";
 import { ResizeGrips } from "./components/ResizeGrips";
 import { DismissibleError } from "./components/DismissibleError";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { SettingsProblemBanner } from "./components/SettingsProblemBanner";
 import { HideCommandButton, SnoozeLabel } from "./components/HideControls";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { HideSnoozeDialog } from "./components/HideSnoozeDialog";
@@ -136,6 +137,14 @@ export function MainView() {
     api.updateDismiss(version).catch(() => {});
   }, []);
 
+  // An unreadable ~/.maiestro/settings.json (hand-edit typo). While it stands
+  // the backend refuses every write to it, so say so where the user is looking;
+  // re-read on each show, so fixing the file clears the banner on the next open.
+  const [settingsProblem, setSettingsProblem] = useState<SettingsProblem | null>(null);
+  const refreshSettingsProblem = useCallback(() => {
+    api.appSettingsProblem().then(setSettingsProblem).catch(() => {});
+  }, []);
+
   const refreshAll = useCallback(() => {
     api.listRepos().then((list) => {
       setRepos(list);
@@ -150,7 +159,8 @@ export function MainView() {
     refreshSessions();
     refreshStatuses();
     refreshUpdate();
-  }, [refreshSessions, refreshStatuses, refreshUpdate]);
+    refreshSettingsProblem();
+  }, [refreshSessions, refreshStatuses, refreshUpdate, refreshSettingsProblem]);
 
   useEffect(() => {
     refreshAll();
@@ -620,6 +630,7 @@ export function MainView() {
         </button>
       </header>
 
+      {settingsProblem && <SettingsProblemBanner problem={settingsProblem} />}
       {update && <UpdateBanner update={update} onDismiss={dismissUpdate} />}
 
       <div className="work-list">

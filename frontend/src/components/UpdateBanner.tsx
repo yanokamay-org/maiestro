@@ -14,25 +14,25 @@ export function UpdateBanner({ update, onDismiss }: {
   const openRelease = () => { void api.openUrl(update.release_url).catch(() => {}); };
   const tag = `v${update.version}`;
   return (
-    <div className="update-banner" role="status">
-      <span className="update-banner-text">
+    <div className="notice-banner notice-banner--update" role="status">
+      <span className="notice-banner-text">
         A new version of m<span className="ai">AI</span>estro Code (
         {/* A button styled as a link: navigation goes through the backend's
             open_url (the webview has no browser to hand an href to). */}
-        <button className="update-banner-link" onClick={openRelease} title={`Open the ${tag} release page`}>
+        <button className="notice-banner-link" onClick={openRelease} title={`Open the ${tag} release page`}>
           {tag}
         </button>
         ) is available
       </span>
       <button
-        className="btn-ghost update-banner-view"
+        className="btn-ghost notice-banner-action"
         title={`Open the ${tag} release page`}
         onClick={openRelease}
       >
         View Release
       </button>
       <button
-        className="update-banner-dismiss"
+        className="notice-banner-dismiss"
         onClick={() => onDismiss(update.version)}
         title="Dismiss for this version"
         aria-label={`Dismiss update ${update.version}`}

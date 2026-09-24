@@ -225,6 +225,16 @@ export interface AppVersion {
   dev_build: boolean;
 }
 
+/** Why ~/.maiestro/settings.json can't be used right now (bad JSON or a schema
+ *  violation); null when the file is fine or absent. Drives the popover's
+ *  warning banner — while it stands, nothing is written to the file. */
+export interface SettingsProblem {
+  /** Absolute path of the file, for Reveal. */
+  path: string;
+  /** The backend's load error, naming the file and the failure. */
+  message: string;
+}
+
 /** A newer release the popover should offer (#182). */
 export interface AvailableUpdate {
   /** Semver of the newer release, e.g. "0.4.0". */
@@ -452,6 +462,10 @@ export const api = {
   /** Version + build metadata of the running app, for the About section. */
   appVersion: () =>
     invoke<AppVersion>("app_version"),
+
+  /** Whether settings.json is currently unreadable, for the popover banner. */
+  appSettingsProblem: () =>
+    invoke<SettingsProblem | null>("app_settings_problem"),
 
   /** Current verdict of the background update check (#182). */
   updateStatus: () =>

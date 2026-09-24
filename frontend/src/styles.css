@@ -2561,22 +2561,31 @@ body {
   vertical-align: 1px;
 }
 
-/* "Newer release available" strip under the popover header (#182). One line,
-   accent-tinted so it reads as a nudge rather than an error; the list below
-   keeps its own scroll. */
-.update-banner {
+/* Notice strips under the popover header: the "newer release available" nudge
+   (#182, accent-tinted) and the "settings.json can't be read" warning
+   (red-tinted). One line tall; the text truncates with an ellipsis so neither
+   wraps at the popover's minimum width, and the list below keeps its own scroll. */
+.notice-banner {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
   padding: 6px 12px 6px 20px;
-  background: var(--accent-bg);
-  border-bottom: 1px solid var(--accent-border);
   font-size: 12px;
   color: var(--text);
 }
 
-.update-banner-text {
+.notice-banner--update {
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--accent-border);
+}
+
+.notice-banner--error {
+  background: var(--red-bg);
+  border-bottom: 1px solid var(--red-border);
+}
+
+.notice-banner-text {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -2584,12 +2593,12 @@ body {
   text-overflow: ellipsis;
 }
 
-.update-banner-view {
+.notice-banner-action {
   flex-shrink: 0;
 }
 
-/* The version number, a link-styled button (opens the release page). */
-.update-banner-link {
+/* An inline link-styled button (opens a page or reveals a file). */
+.notice-banner-link {
   background: none;
   border: none;
   padding: 0;
@@ -2600,11 +2609,15 @@ body {
   cursor: default;
 }
 
-.update-banner-link:hover {
+.notice-banner--error .notice-banner-link {
+  color: var(--red);
+}
+
+.notice-banner-link:hover {
   color: var(--text);
 }
 
-.update-banner-dismiss {
+.notice-banner-dismiss {
   flex-shrink: 0;
   background: none;
   border: none;
@@ -2615,6 +2628,6 @@ body {
   cursor: default;
 }
 
-.update-banner-dismiss:hover {
+.notice-banner-dismiss:hover {
   color: var(--text);
 }
