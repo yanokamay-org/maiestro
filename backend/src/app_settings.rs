@@ -66,6 +66,26 @@ pub struct ToolPaths {
     pub code: Option<String>,
 }
 
+/// Persisted state of the background update check (`crate::update_check`).
+/// Machine-managed and hidden from the Settings form. Timestamps are RFC 3339
+/// strings (not parsed types) so a hand-edited or malformed value degrades to
+/// "unknown" at the point of use rather than failing the whole settings load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateCheckState {
+    /// When the last *successful* check ran (UTC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    /// Latest published release seen by that check, e.g. `0.4.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    /// When GitHub says that release was published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_published_at: Option<String>,
+    /// The version whose banner the user dismissed; hidden for that version only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_version: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
     /// Saved popover size. `None` (absent) means "use the tauri.conf.json default".
@@ -95,6 +115,10 @@ pub struct AppSettings {
     /// onboarding can grow more options without changing the gate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onboarding_completed: Option<bool>,
+    /// Background update-check state (issue #182). Machine-managed, hidden from
+    /// the Settings form; `None` (absent) means never checked, nothing dismissed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_check: Option<UpdateCheckState>,
 }
 
 /// The user's explicit path override for a directly-invoked tool
@@ -236,9 +260,9 @@ pub fn app_settings_get() -> Result<AppSettings, String> {
 
 /// Persist the settings edited in the Settings form. The form owns only the
 /// user-editable fields (`theme`, `tool_paths`, `terminal_font_family`,
-/// `launch_at_login`); the machine-managed window sizes
-/// are load-merged from disk so a concurrent size save from another window isn't
-/// clobbered. Validates before writing, and broadcasts `theme-changed` when the
+/// `launch_at_login`); the machine-managed window sizes, onboarding flag, and
+/// update-check state are load-merged from disk so a concurrent save from
+/// another window or the update checker isn't clobbered. Validates before writing, and broadcasts `theme-changed` when the
 /// theme actually changed so every window re-applies live.
 #[tauri::command]
 pub fn app_settings_set(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
@@ -264,8 +288,8 @@ pub fn app_settings_set(app: tauri::AppHandle, settings: AppSettings) -> Result<
         current.tool_paths = settings.tool_paths.clone();
         current.terminal_font_family = settings.terminal_font_family.clone();
         current.launch_at_login = settings.launch_at_login;
-        // onboarding_completed / window / settings_window are deliberately kept
-        // from disk (machine-managed).
+        // onboarding_completed / window / settings_window / update_check are
+        // deliberately kept from disk (machine-managed).
     })
     .map_err(|e| e.to_string())?;
 
@@ -450,6 +474,12 @@ mod tests {
             terminal_font_family: Some("Menlo, monospace".into()),
             launch_at_login: Some(true),
             onboarding_completed: Some(true),
+            update_check: Some(UpdateCheckState {
+                checked_at: Some("2026-09-24T14:02:11Z".into()),
+                latest_version: Some("0.4.0".into()),
+                latest_published_at: Some("2026-09-10T18:30:00Z".into()),
+                dismissed_version: Some("0.4.0".into()),
+            }),
         };
         let value = serde_json::to_value(&populated).unwrap();
         let struct_keys: BTreeSet<String> =

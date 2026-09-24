@@ -2560,3 +2560,61 @@ body {
   color: var(--muted);
   vertical-align: 1px;
 }
+
+/* "Newer release available" strip under the popover header (#182). One line,
+   accent-tinted so it reads as a nudge rather than an error; the list below
+   keeps its own scroll. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px 6px 20px;
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--accent-border);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-banner-view {
+  flex-shrink: 0;
+}
+
+/* The version number, a link-styled button (opens the release page). */
+.update-banner-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+
+.update-banner-link:hover {
+  color: var(--text);
+}
+
+.update-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: default;
+}
+
+.update-banner-dismiss:hover {
+  color: var(--text);
+}

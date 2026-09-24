@@ -1,7 +1,7 @@
 // JSON Forms rendering for the global app-settings ("Preferences") panel (issue
 // #85). Mirrors RepoSettingsForm: the JSON Schema is the backend's hand-written
 // spec (fetched via `app_settings_schema`); this module supplies the UI schema
-// (which fields to show, in what order — `window`/`settings_window` are hidden as
+// (which fields to show, in what order — `window`/`settings_window`/`update_check` are hidden as
 // machine-managed) and two custom renderers the schema alone can't express:
 //   - Theme: the segmented light/dark/system control (a plain enum would render
 //     as a dropdown).
@@ -23,8 +23,8 @@ import { ResolvedTool, Theme } from "./api";
 import { RevealButton, PathMissingHint, usePathExists } from "./PathField";
 import { ToggleSwitch } from "./components/ToggleSwitch";
 
-/** Field order; `window`/`settings_window`/`onboarding_completed` are
- *  deliberately omitted (machine-managed). */
+/** Field order; `window`/`settings_window`/`onboarding_completed`/`update_check`
+ *  are deliberately omitted (machine-managed). */
 export const appSettingsUISchema = {
   type: "VerticalLayout",
   elements: [

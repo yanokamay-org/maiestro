@@ -34,7 +34,7 @@ pub struct AppVersion {
 }
 
 /// The GitHub Release page for `version`'s tag (`vX.Y.Z`).
-fn release_url(version: &str) -> String {
+pub(crate) fn release_url(version: &str) -> String {
     format!("{REPO_URL}/releases/tag/v{version}")
 }
 

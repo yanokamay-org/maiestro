@@ -26,6 +26,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
 notify = "6"
 chrono = { version = "0.4", features = ["clock"], default-features = false }
+# Version comparison for the update check (tauri already depends on it; listed
+# so `PackageInfo.version` and a parsed release tag are the same type here).
+semver = "1"
 jsonschema = { version = "0.46", default-features = false }
 
 [dev-dependencies]

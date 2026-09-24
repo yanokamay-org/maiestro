@@ -200,6 +200,13 @@ export interface AppSettings {
   settings_window?: { width: number; height: number } | null;
   /** Machine-managed: whether onboarding has been completed. Not edited in the form. */
   onboarding_completed?: boolean | null;
+  /** Machine-managed: background update-check state (#182). Not edited in the form. */
+  update_check?: {
+    checked_at?: string | null;
+    latest_version?: string | null;
+    latest_published_at?: string | null;
+    dismissed_version?: string | null;
+  } | null;
 }
 
 /** Version + build metadata for the running app, shown in Preferences → About (#126). */
@@ -216,6 +223,24 @@ export interface AppVersion {
   /** True for a local build made after the `version` release, rather than that
    *  release itself — rendered as "X.Y.Z+dev". */
   dev_build: boolean;
+}
+
+/** A newer release the popover should offer (#182). */
+export interface AvailableUpdate {
+  /** Semver of the newer release, e.g. "0.4.0". */
+  version: string;
+  /** GitHub Release page the banner's Download opens. */
+  release_url: string;
+  /** When GitHub says it was published, RFC 3339. */
+  published_at: string;
+}
+
+/** Verdict of the background update check, read on every popover show. */
+export interface UpdateStatus {
+  /** null when up to date, never checked, inside the 5-day bake period, or dismissed. */
+  available: AvailableUpdate | null;
+  /** When the last successful check ran (RFC 3339); null if never. */
+  checked_at: string | null;
 }
 
 /** How a directly-invoked tool currently resolves, for the settings status line. */
@@ -427,4 +452,12 @@ export const api = {
   /** Version + build metadata of the running app, for the About section. */
   appVersion: () =>
     invoke<AppVersion>("app_version"),
+
+  /** Current verdict of the background update check (#182). */
+  updateStatus: () =>
+    invoke<UpdateStatus>("update_check_status"),
+
+  /** Remember that the banner for `version` was dismissed; it returns for a newer one. */
+  updateDismiss: (version: string) =>
+    invoke<void>("update_dismiss", { version }),
 };
