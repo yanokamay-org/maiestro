@@ -202,9 +202,9 @@ export function SessionRow({
           className={`command-btn ${agentBusy ? "btn-busy" : ""}`}
           onClick={onChooseAgent}
           disabled={agentBusy || switchBusy}
-          title={creating ? "Still creating this workspace…" : `Choose this worktree's agent (now ${AGENT_NAMES[agent]})`}
+          title={creating ? "Still creating this workspace…" : `Choose this worktree's agentic coding CLI (now ${AGENT_NAMES[agent]})`}
         >
-          AI Agent…
+          Agentic Coding CLI…
         </button>
         <HideCommandButton hidden={sessHidden} onHide={onHide} onUnhide={onUnhide} />
         <button
@@ -236,7 +236,7 @@ export function SessionRow({
         <DismissibleError variant="list" lead="mAIestro Code changed this worktree" message={s.notice} onDismiss={onDismissNotice} />
       )}
       {prompt?.kind === "error" && (
-        <DismissibleError lead="Couldn't switch the agent" message={prompt.message} onDismiss={onDismissAgentPrompt} />
+        <DismissibleError lead="Couldn't switch the agentic coding CLI" message={prompt.message} onDismiss={onDismissAgentPrompt} />
       )}
       {prompt?.kind === "restart" && (
         <div className="cleanup-confirm">

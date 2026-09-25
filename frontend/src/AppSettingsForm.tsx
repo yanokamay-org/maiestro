@@ -5,7 +5,7 @@
 // machine-managed) and two custom renderers the schema alone can't express:
 //   - Theme: the segmented light/dark/system control (a plain enum would render
 //     as a dropdown).
-//   - Default Agent: a Claude Code / Codex CLI / Antigravity CLI dropdown, the default for repos
+//   - Default Agentic Coding CLI: a Claude Code / Codex CLI / Antigravity CLI dropdown, the default for repos
 //     that don't pick their own.
 //   - Tool paths: one input per CLI (claude/codex/agy/git/code, from the schema) with
 //     a live resolved-path status line.
@@ -32,7 +32,7 @@ export const appSettingsUISchema = {
   type: "VerticalLayout",
   elements: [
     { type: "Control", scope: "#/properties/theme", label: "Theme" },
-    { type: "Control", scope: "#/properties/agent", label: "Default Agent" },
+    { type: "Control", scope: "#/properties/agent", label: "Default Agentic Coding CLI" },
     { type: "Control", scope: "#/properties/terminal_font_family", label: "Terminal font" },
     { type: "Control", scope: "#/properties/launch_at_login", label: "Launch at login" },
     { type: "Control", scope: "#/properties/tool_paths", label: "Tool paths" },

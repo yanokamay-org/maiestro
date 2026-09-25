@@ -98,7 +98,7 @@ export function MainView() {
   // ids whose switch or restart is in flight (issue #186).
   const [agentPrompt, setAgentPrompt] = useState<AgentPrompt | null>(null);
   const [agentBusy, setAgentBusy] = useState<Record<string, boolean>>({});
-  // The session whose "AI Agent…" picker is open.
+  // The session whose "Agentic Coding CLI…" picker is open.
   const [agentTarget, setAgentTarget] = useState<Session | null>(null);
   // Target of the hide/snooze dialog, or null when closed.
   const [hideTarget, setHideTarget] = useState<HideTarget | null>(null);

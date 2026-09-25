@@ -2233,7 +2233,7 @@ body {
   gap: 8px;
 }
 
-/* AI Agent picker (AgentSwitchDialog): the hide-choice rows with the agent mark;
+/* Agentic Coding CLI picker (AgentSwitchDialog): the hide-choice rows with the agent mark;
    the current agent is shown but not selectable. */
 .agent-choice-label {
   display: inline-flex;

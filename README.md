@@ -47,11 +47,12 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro Code** to Applications.
 
-**2. Install an agent: Claude Code, Codex CLI, or Antigravity CLI.** mAIestro
-Code launches your coding agent into every workspace it creates and uses it to
-draft issues, labels, and PRs, so it has to be installed and logged in first. You
-need **one** of them, not all. Claude Code is the default. To use another agent,
-pick it under **General → Default Agent**, or per repo in that repo's settings.
+**2. Install an agentic coding CLI: Claude Code, Codex CLI, or Antigravity CLI.**
+mAIestro Code launches your agentic coding CLI into every workspace it creates
+and uses it to draft issues, labels, and PRs, so it has to be installed and
+logged in first. You need **one** of them, not all. Claude Code is the default.
+To use another agentic coding CLI, pick it under **General → Default Agentic
+Coding CLI**, or per repo in that repo's settings.
 
 *Claude Code* — either installer works:
 
@@ -137,7 +138,7 @@ brew install --cask font-jetbrains-mono-nerd-font
 
 ### Other Platforms
 
-mAIestro Code is not yet available on other platforms, but it is designed to support multiple OS, AI agents, etc. Please submit a github issue to request more platforms.
+mAIestro Code is not yet available on other platforms, but it is designed to support multiple OS, agentic coding CLIs, etc. Please submit a github issue to request more platforms.
 
 ## Quick start
 
@@ -203,11 +204,11 @@ prerequisites in one pass and streams the results:
 - **Git available** and **Session editor available** — the `git` and VS Code
   `code` CLIs resolve (pin them under **General → Tool paths** if not).
 - **Claude logged in** (or **Codex logged in** / **Antigravity logged in**, for
-  a repo on that agent), with a **model available** sub-check — a real probe of
-  the repo's drafting model (for Antigravity, a check against `agy models`), so
-  a login problem and a bad model name are reported separately. Only the repo's
-  own agent is checked, so a machine with just one agent installed gets a clean
-  report.
+  a repo on that agentic coding CLI), with a **model available** sub-check — a
+  real probe of the repo's drafting model (for Antigravity, a check against
+  `agy models`), so a login problem and a bad model name are reported
+  separately. Only the repo's own agentic coding CLI is checked, so a machine
+  with just one agentic coding CLI installed gets a clean report.
 - **GitHub token & permissions** — the token is valid, the repo is readable,
   and the token can push. This is derived from the scopes and permissions
   GitHub reports; mAIestro Code never creates a throwaway issue or PR to test.
@@ -283,7 +284,7 @@ Per-repo settings cover the local clone path (`cloned_repo_dir`), where
 worktrees are created (`worktree_prefix`), `.env` files to copy into each new
 worktree (`env_files`), shell commands to run after a worktree is created
 (`post_spawn_commands`, e.g. `pnpm install`), and overrides for the prompts
-mAIestro Code sends the repo's agent when drafting issues, labels, and PRs (`prompts`).
+mAIestro Code sends the repo's agentic coding CLI when drafting issues, labels, and PRs (`prompts`).
 
 The format is specified by a JSON Schema at
 [`backend/schemas/repo-settings.schema.json`](backend/schemas/repo-settings.schema.json)
