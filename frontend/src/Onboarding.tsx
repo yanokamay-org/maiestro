@@ -186,10 +186,11 @@ export function Onboarding() {
             <>
               <h2 className="onboarding-heading">Choose defaults</h2>
               <p className="onboarding-lead">
-                The agent starts in every new worktree. A repo can pick its own in its settings.
+                Your agentic coding CLI starts in every new worktree. A repo can pick its own
+                in its settings.
               </p>
 
-              <div className="onboarding-agents" role="radiogroup" aria-label="Default agent">
+              <div className="onboarding-agents" role="radiogroup" aria-label="Default agentic coding CLI">
                 {AGENTS.map((a) => {
                   const Mark = AGENT_MARKS[a];
                   const t = toolFor(a);

@@ -2001,16 +2001,9 @@ body {
   padding: 20px 28px 16px;
   display: flex;
   flex-direction: column;
-  animation: onboarding-step-in 0.18s ease-out;
-}
-
-@keyframes onboarding-step-in {
-  from { opacity: 0; transform: translateX(8px); }
-  to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-body { animation: none; }
   .onboarding-rail-bar { transition: none; }
 }
 
