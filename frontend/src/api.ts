@@ -522,6 +522,12 @@ export const api = {
   completeOnboarding: (launchAtLogin: boolean, agent: Agent) =>
     invoke<void>("onboarding_complete", { launchAtLogin, agent }),
 
+  /** The model ids `agent`'s CLI reports (`codex debug models`, `agy models`),
+   *  for the drafting-model suggestions. `null` when the CLI can't list them
+   *  (Claude Code, not installed, not signed in) — fall back to built-in hints. */
+  agentModels: (agent: Agent) =>
+    invoke<string[] | null>("agent_models", { agent }),
+
   /** Per-tool resolution (path + whether it exists), for the Tool paths status line. */
   toolsResolved: () =>
     invoke<ResolvedTool[]>("tools_resolved"),
