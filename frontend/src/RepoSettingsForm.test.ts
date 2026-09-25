@@ -4,6 +4,7 @@ import {
   sanitizeSchemaForForm,
   prefixParentDir,
   resolveEnvFile,
+  promptModelPlaceholder,
 } from "./RepoSettingsForm";
 
 // A trimmed shape of the real repo-settings schema, enough to exercise default
@@ -14,7 +15,13 @@ const SCHEMA = {
   type: "object",
   properties: {
     worktree_prefix: { type: ["string", "null"], default: "~/src/work-" },
-    prompt_model: { type: ["string", "null"], default: "haiku" },
+    prompt_models: {
+      type: ["object", "null"],
+      properties: {
+        claude: { type: ["string", "null"], default: "haiku" },
+        codex: { type: ["string", "null"], default: null },
+      },
+    },
     cloned_repo_dir: { type: ["string", "null"] },
     comment_on_spawn: { type: ["boolean", "null"], default: true },
     delete_remote_on_teardown: { type: ["boolean", "null"], default: true },
@@ -33,7 +40,8 @@ describe("extractFormDefaults", () => {
   it("reads the top-level and nested prompt defaults from the schema", () => {
     const d = extractFormDefaults(SCHEMA);
     expect(d.worktreePrefixDefault).toBe("~/src/work-");
-    expect(d.promptModelDefault).toBe("haiku");
+    // Per agent: Claude's alias default, and no default at all for Codex.
+    expect(d.promptModelDefaults).toEqual({ claude: "haiku", codex: "" });
     expect(d.promptDefaults).toEqual({
       draft_issue: "Draft an issue.",
       short_label: "Short label.",
@@ -55,7 +63,7 @@ describe("extractFormDefaults", () => {
   it("falls back to empty strings when defaults are missing", () => {
     const d = extractFormDefaults({ properties: {} });
     expect(d.worktreePrefixDefault).toBe("");
-    expect(d.promptModelDefault).toBe("");
+    expect(d.promptModelDefaults).toEqual({ claude: "", codex: "" });
     expect(d.booleanDefaults).toEqual({});
     expect(d.promptDefaults).toEqual({ draft_issue: "", short_label: "", draft_pr: "" });
   });
@@ -113,5 +121,15 @@ describe("resolveEnvFile", () => {
 
   it("returns empty when there is no cloned repo dir to resolve against", () => {
     expect(resolveEnvFile(null, ".env")).toBe("");
+  });
+});
+
+describe("promptModelPlaceholder", () => {
+  // An empty field means "the default": Claude's schema alias, or — with no
+  // schema default — Codex's own configured model, which the placeholder says.
+  it("shows the schema default, or Codex's own default when there is none", () => {
+    expect(promptModelPlaceholder("claude", "haiku")).toBe("haiku");
+    expect(promptModelPlaceholder("codex", "")).toBe("Codex's configured default");
+    expect(promptModelPlaceholder("codex", "gpt-5-codex")).toBe("gpt-5-codex");
   });
 });

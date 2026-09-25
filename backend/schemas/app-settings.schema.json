@@ -28,6 +28,12 @@
       "enum": ["light", "dark", "system", null],
       "description": "Chosen UI appearance. \"system\" follows the macOS dark/light setting (resolved via prefers-color-scheme). null/absent means \"system\"."
     },
+    "agent": {
+      "type": ["string", "null"],
+      "enum": ["claude", "codex", null],
+      "default": "claude",
+      "description": "The coding agent repos use unless they choose their own: Claude Code or Codex CLI. It runs the session in each spawned worktree and mAIestro Code's own AI drafting (issues, labels, PRs). Only the agent in use needs to be installed."
+    },
     "tool_paths": {
       "type": ["object", "null"],
       "title": "ToolPaths",
@@ -35,7 +41,11 @@
       "properties": {
         "claude": {
           "type": ["string", "null"],
-          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Claude in a spawned worktree's VS Code terminal. Leave empty to auto-detect."
+          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Claude in a spawned worktree's VS Code terminal, for repos whose agent is Claude. Leave empty to auto-detect."
+        },
+        "codex": {
+          "type": ["string", "null"],
+          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Codex in a spawned worktree's VS Code terminal, for repos whose agent is Codex. Leave empty to auto-detect."
         },
         "git": {
           "type": ["string", "null"],
@@ -54,7 +64,7 @@
     },
     "launch_at_login": {
       "type": ["boolean", "null"],
-      "description": "Whether to launch mAIestro Code automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the Preferences panel. null/absent = false."
+      "description": "Whether to launch mAIestro Code automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the General settings panel. null/absent = false."
     },
     "onboarding_completed": {
       "type": ["boolean", "null"],

@@ -5,8 +5,10 @@
 // machine-managed) and two custom renderers the schema alone can't express:
 //   - Theme: the segmented light/dark/system control (a plain enum would render
 //     as a dropdown).
-//   - Tool paths: one input per CLI (claude/git/code) with a live resolved-path
-//     status line.
+//   - Default Agent: a Claude Code / Codex CLI dropdown, the default for repos
+//     that don't pick their own.
+//   - Tool paths: one input per CLI (claude/codex/git/code, from the schema) with
+//     a live resolved-path status line.
 //   - Terminal font: a text input whose placeholder is the schema default, so an
 //     empty field visibly means "use the default" (a plain string control would
 //     just look unset).
@@ -19,7 +21,8 @@ import {
 } from "@jsonforms/core";
 import { withJsonFormsControlProps } from "@jsonforms/react";
 import { vanillaRenderers, vanillaCells } from "@jsonforms/vanilla-renderers";
-import { ResolvedTool, Theme } from "./api";
+import { Agent, ResolvedTool, Theme } from "./api";
+import { AGENTS, AGENT_PRODUCTS, asAgent } from "./lib/agents";
 import { RevealButton, PathMissingHint, usePathExists } from "./PathField";
 import { ToggleSwitch } from "./components/ToggleSwitch";
 
@@ -29,6 +32,7 @@ export const appSettingsUISchema = {
   type: "VerticalLayout",
   elements: [
     { type: "Control", scope: "#/properties/theme", label: "Theme" },
+    { type: "Control", scope: "#/properties/agent", label: "Default Agent" },
     { type: "Control", scope: "#/properties/terminal_font_family", label: "Terminal font" },
     { type: "Control", scope: "#/properties/launch_at_login", label: "Launch at login" },
     { type: "Control", scope: "#/properties/tool_paths", label: "Tool paths" },
@@ -42,6 +46,8 @@ export interface AppFormConfig {
   resolvedTools: ResolvedTool[];
   /** The `terminal_font_family` schema default, shown as the field's placeholder. */
   terminalFontDefault: string;
+  /** The `agent` schema default, selected when the setting is null. */
+  agentDefault: Agent;
 }
 
 /** Defaults the form displays, read from the schema's `default` keywords — the
@@ -50,6 +56,7 @@ export interface AppFormConfig {
  *  schema reaches JsonForms (so ajv can't inject it into the saved data). */
 export interface AppFormDefaults {
   terminalFontDefault: string;
+  agentDefault: Agent;
 }
 
 export function extractAppFormDefaults(
@@ -57,7 +64,10 @@ export function extractAppFormDefaults(
 ): AppFormDefaults {
   const props = (schema.properties ?? {}) as Record<string, { default?: unknown }>;
   const def = props.terminal_font_family?.default;
-  return { terminalFontDefault: typeof def === "string" ? def : "" };
+  return {
+    terminalFontDefault: typeof def === "string" ? def : "",
+    agentDefault: asAgent(props.agent?.default, "claude"),
+  };
 }
 
 // ── Theme (segmented control) ────────────────────────────────────────────────
@@ -105,6 +115,41 @@ function ThemeControl(props: ControlProps) {
 
 export const themeTester = rankWith(20, scopeEndsWith("theme"));
 export const ThemeRenderer = withJsonFormsControlProps(ThemeControl);
+
+// ── Default agent (dropdown) ─────────────────────────────────────────────────
+// Stored value is "claude" | "codex" | null; null shows as the schema default.
+// Same select as the per-repo Agent field, minus its "Use global default"
+// option — this *is* the global default. Picking the default explicitly is
+// stored as-is; it only matters if the schema default moves.
+
+function AgentControl(props: ControlProps) {
+  const { data, handleChange, path, label, description, config } = props;
+  const value: Agent = asAgent(data, config?.agentDefault ?? "claude");
+  return (
+    <div className="control jsf-control">
+      <label className="jsf-label">{label}</label>
+      {description && <div className="jsf-help">{description}</div>}
+      <select
+        className="text-input profile-select"
+        value={value}
+        aria-label={label}
+        onChange={(e) => handleChange(path, e.target.value)}
+      >
+        {AGENTS.map((a) => (
+          <option key={a} value={a}>
+            {AGENT_PRODUCTS[a]}
+          </option>
+        ))}
+      </select>
+      <p className="session-hint" style={{ paddingTop: 2 }}>
+        Each repo can override this in its own settings.
+      </p>
+    </div>
+  );
+}
+
+export const agentTester = rankWith(20, scopeEndsWith("agent"));
+export const AgentRenderer = withJsonFormsControlProps(AgentControl);
 
 // ── Launch at login (segmented on/off switch) ────────────────────────────────
 // Stored value is boolean | null; null is treated as false (issue #98).
@@ -290,6 +335,7 @@ export const ToolPathsRenderer = withJsonFormsControlProps(ToolPathsControl);
 // Custom renderers first so they out-rank the vanilla defaults for their scopes.
 export const appSettingsRenderers = [
   { tester: themeTester, renderer: ThemeRenderer },
+  { tester: agentTester, renderer: AgentRenderer },
   { tester: launchAtLoginTester, renderer: LaunchAtLoginRenderer },
   { tester: terminalFontTester, renderer: TerminalFontRenderer },
   { tester: toolPathsTester, renderer: ToolPathsRenderer },

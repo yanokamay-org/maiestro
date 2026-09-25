@@ -1,11 +1,11 @@
 //! Per-session live status: **busy / needs-you / idle**.
 //!
-//! mAIestro Code launches `claude` into VS Code/terminal and no longer owns its
-//! stdio (see CLAUDE.md → "mAIestro Code launches sessions; it does not host them"),
-//! so it can't read working/waiting state from the stream. Instead, each spawned
-//! worktree gets Claude Code hooks (written by `spawn.rs`) that invoke this very
-//! binary as `maiestro hook <state> --workspace <ws-id>`. The hook reads Claude's
-//! event JSON on stdin, writes a small status record to `~/.maiestro/status/<ws-id>.json`,
+//! mAIestro Code launches the repo's agent (`claude` or `codex`) into VS Code and
+//! no longer owns its stdio (see CLAUDE.md → "mAIestro Code launches sessions; it
+//! does not host them"), so it can't read working/waiting state from the stream.
+//! Instead, each spawned worktree gets agent hooks (written by `hooks.rs`) that
+//! invoke this very binary as `maiestro hook <state> --workspace <ws-id>`. The
+//! hook reads the agent's event JSON on stdin, writes a small status record to `~/.maiestro/status/<ws-id>.json`,
 //! and the backend watches that directory and pushes changes to the popover.
 
 use std::io::Read;
@@ -125,9 +125,20 @@ fn resolve_state(arg: &str, payload: &serde_json::Value) -> (String, Option<Stri
             let detail = payload["tool_name"].as_str().map(|t| t.to_string());
             ("busy".into(), detail)
         }
+        // Claude's `Notification` carries a `message`. Codex has no such event
+        // and fires this verb from `PermissionRequest`, whose payload names the
+        // tool instead — so fall back to that for the detail.
         "notification" => {
             let msg = payload["message"].as_str().unwrap_or("").trim();
-            let detail = if msg.is_empty() { None } else { Some(msg.to_string()) };
+            let detail = if !msg.is_empty() {
+                Some(msg.to_string())
+            } else {
+                payload["tool_name"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!("Permission requested: `{t}`"))
+            };
             ("needs_you".into(), detail)
         }
         "idle" => ("idle".into(), None),
@@ -191,22 +202,33 @@ fn next_last_error(
 /// user's Claude session, so every error is swallowed.
 pub fn run_hook_cli(args: &[String]) {
     // args = ["<state>", "--workspace", "<ws-id>"] (order-tolerant for the flag).
+    // Codex hooks pass only the state: they must be identical for every worktree
+    // (see hooks.rs), so the workspace comes from the payload's `cwd` instead.
     let state_arg = args.first().map(|s| s.as_str()).unwrap_or("");
-    let workspace = args
-        .iter()
-        .position(|a| a == "--workspace")
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_default();
-    if state_arg.is_empty() || !is_safe_workspace_id(&workspace) {
+    let flag = args.iter().position(|a| a == "--workspace").and_then(|i| args.get(i + 1)).cloned();
+    if state_arg.is_empty() {
         return;
     }
 
-    // Best-effort stdin parse: Claude sends a JSON event, but we still record a
-    // status even if it's empty or malformed.
+    // Best-effort stdin parse: the agent sends a JSON event, but we still record
+    // a status even if it's empty or malformed.
     let mut buf = String::new();
     let _ = std::io::stdin().read_to_string(&mut buf);
     let payload: serde_json::Value = serde_json::from_str(&buf).unwrap_or(serde_json::Value::Null);
+
+    let workspace = match flag {
+        Some(ws) => ws,
+        None => {
+            let Some(cwd) = payload["cwd"].as_str() else { return };
+            let sessions: Vec<(String, String)> =
+                crate::sessions::load_all().into_iter().map(|s| (s.id, s.work_dir)).collect();
+            let Some(ws) = workspace_for_cwd(cwd, &sessions) else { return };
+            ws
+        }
+    };
+    if !is_safe_workspace_id(&workspace) {
+        return;
+    }
 
     let (state, detail) = resolve_state(state_arg, &payload);
     let ts = chrono::Utc::now().to_rfc3339();
@@ -240,6 +262,23 @@ pub fn run_hook_cli(args: &[String]) {
     };
 
     let _ = write_record_atomic(&record);
+}
+
+/// The workspace whose worktree contains `cwd` — the session's own directory or
+/// any folder inside it — from `(id, work_dir)` pairs. The deepest match wins, so
+/// a worktree nested under another (unusual, but possible with a custom prefix)
+/// resolves to itself. `None` when `cwd` is in no tracked worktree (a Codex
+/// session mAIestro Code didn't launch), and the hook then records nothing.
+fn workspace_for_cwd(cwd: &str, sessions: &[(String, String)]) -> Option<String> {
+    let cwd = cwd.trim_end_matches('/');
+    sessions
+        .iter()
+        .filter(|(_, dir)| {
+            let dir = dir.trim_end_matches('/');
+            !dir.is_empty() && (cwd == dir || cwd.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/')))
+        })
+        .max_by_key(|(_, dir)| dir.len())
+        .map(|(id, _)| id.clone())
 }
 
 /// Pull a human-readable failure message out of a `PostToolUseFailure` payload.
@@ -604,6 +643,19 @@ mod tests {
     // Real ids pass; path-traversal / separator / dot ids are rejected so a
     // crafted `--workspace` can't make status_path escape ~/.maiestro/status/.
     #[test]
+    fn workspace_for_cwd_matches_the_containing_worktree() {
+        let sessions = vec![
+            ("8-a".to_string(), "/src/work-8-a/repo".to_string()),
+            ("9-b".to_string(), "/src/work-9-b/repo".to_string()),
+        ];
+        assert_eq!(workspace_for_cwd("/src/work-8-a/repo", &sessions).as_deref(), Some("8-a"));
+        assert_eq!(workspace_for_cwd("/src/work-9-b/repo/frontend/", &sessions).as_deref(), Some("9-b"));
+        // A sibling whose name merely extends the worktree's is not inside it.
+        assert_eq!(workspace_for_cwd("/src/work-8-a/repo-2", &sessions), None);
+        assert_eq!(workspace_for_cwd("/elsewhere", &sessions), None);
+    }
+
+    #[test]
     fn workspace_id_validation() {
         assert!(is_safe_workspace_id("8-surface-per-session"));
         assert!(is_safe_workspace_id("123"));
@@ -676,6 +728,12 @@ mod tests {
         );
         let empty_msg = serde_json::json!({ "message": "   " });
         assert_eq!(resolve_state("notification", &empty_msg), ("needs_you".into(), None));
+        // Codex's PermissionRequest: no message, but a tool name.
+        let codex = serde_json::json!({ "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": "rm -rf x" } });
+        assert_eq!(
+            resolve_state("notification", &codex),
+            ("needs_you".into(), Some("Permission requested: `Bash`".into()))
+        );
     }
 
     // ── Filesystem-level tests (MAIESTRO_HOME-injected temp root) ───────────────

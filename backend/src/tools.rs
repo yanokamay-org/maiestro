@@ -1,5 +1,5 @@
-//! Resolving the external CLIs mAIestro Code invokes **directly** — `claude`, `git`,
-//! and the VS Code `code` CLI — robustly, even when the app is launched from the
+//! Resolving the external CLIs mAIestro Code invokes **directly** — the agent CLIs
+//! `claude` and `codex`, `git`, and the VS Code `code` CLI — robustly, even when the app is launched from the
 //! packaged bundle (`/Applications/mAIestro Code.app/…`).
 //!
 //! The problem: at login, macOS Launch Services starts the app with a **minimal
@@ -156,6 +156,12 @@ fn fallbacks(name: &str) -> Vec<PathBuf> {
             PathBuf::from("/opt/homebrew/bin/claude"),
             PathBuf::from("/usr/local/bin/claude"),
         ],
+        "codex" => vec![
+            PathBuf::from("/opt/homebrew/bin/codex"),
+            PathBuf::from("/usr/local/bin/codex"),
+            // Codex's standalone installer links its binary here.
+            home().join(".local/bin/codex"),
+        ],
         "code" => vec![
             PathBuf::from("/opt/homebrew/bin/code"),
             PathBuf::from("/usr/local/bin/code"),
@@ -274,7 +280,9 @@ pub fn shell_quote(s: &str) -> String {
 }
 
 /// The directly-invoked tools whose resolution the Settings UI surfaces.
-const TOOLS: &[&str] = &["claude", "git", "code"];
+/// Both agents are listed so either can be pinned; nothing *resolves* an agent's
+/// binary for real work unless a repo actually uses that agent.
+const TOOLS: &[&str] = &["claude", "codex", "git", "code"];
 
 /// One tool's resolution result, for the Settings "Tool paths" status line.
 #[derive(serde::Serialize)]
@@ -354,6 +362,19 @@ mod tests {
         // `~/.local/bin` is where `pip install --user` and the native installer
         // put `claude`; a fresh account's login shell may not have it on PATH.
         assert!(fallbacks("claude").contains(&home().join(".local/bin/claude")));
+    }
+
+    #[test]
+    fn codex_fallbacks_probe_homebrew_and_the_user_local_bin() {
+        let f = fallbacks("codex");
+        assert!(f.contains(&PathBuf::from("/opt/homebrew/bin/codex")));
+        assert!(f.contains(&PathBuf::from("/usr/local/bin/codex")));
+        assert!(f.contains(&home().join(".local/bin/codex")));
+    }
+
+    #[test]
+    fn tools_list_includes_both_agents() {
+        assert!(TOOLS.contains(&"claude") && TOOLS.contains(&"codex"));
     }
 
     #[test]

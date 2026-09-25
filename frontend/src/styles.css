@@ -308,10 +308,10 @@ body {
   white-space: nowrap;
 }
 
-/* Claude session pill: the Claude mark tints by live session state, with the
+/* Agent session pill: the agent mark (Claude or Codex) tints by live session state, with the
    status word beside it. Sits between the title and the action pill group, and
    clicking it opens the session's VS Code window. */
-.claude-pill {
+.agent-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -329,12 +329,12 @@ body {
   cursor: pointer;
 }
 
-.claude-pill:hover {
+.agent-pill:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-.claude-pill-mark {
+.agent-pill-mark {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
@@ -343,7 +343,7 @@ body {
 
 /* Fixed width sized to the longest label ("Needs you") so the pill — and the
    title beside it — don't shift as the state changes. */
-.claude-pill-label {
+.agent-pill-label {
   display: inline-block;
   width: 56px;
   overflow: hidden;
@@ -395,24 +395,24 @@ body {
    `busy-ring`). The mark and label are plain off-white (green clashed with the
    rainbow, and the ring already conveys activity, so the mark no longer
    pulses). */
-.claude-pill--busy .claude-pill-mark,
-.claude-pill--busy .claude-pill-label {
+.agent-pill--busy .agent-pill-mark,
+.agent-pill--busy .agent-pill-label {
   color: var(--text);
 }
 
 /* Needs you: amber and emphasized — the actionable state. */
-.claude-pill--needs_you {
+.agent-pill--needs_you {
   background: var(--accent-bg);
   border-color: var(--accent-border);
   color: var(--accent);
 }
-.claude-pill--needs_you .claude-pill-mark {
+.agent-pill--needs_you .agent-pill-mark {
   color: var(--accent);
 }
 
 /* Ready / idle: muted mark. */
-.claude-pill--running .claude-pill-mark,
-.claude-pill--idle .claude-pill-mark {
+.agent-pill--running .agent-pill-mark,
+.agent-pill--idle .agent-pill-mark {
   color: var(--muted);
 }
 
@@ -453,10 +453,10 @@ body {
 /* A failed tool call: red mark/border, regardless of the underlying state
    (e.g. still "busy", which draws the rainbow ring). The full error shows in
    the dismissible block below the row. */
-.claude-pill--error {
+.agent-pill--error {
   border-color: var(--red-border);
 }
-.claude-pill--error .claude-pill-mark {
+.agent-pill--error .agent-pill-mark {
   color: var(--red);
 }
 
@@ -1718,7 +1718,7 @@ body {
    Two variants share the machinery: the base is a single-hue accent sweep
    (brightness moves around the ring, no color cycling) for plain script work;
    `.btn-busy--ai` is the Apple-Intelligence-style rainbow, applied live while
-   a Claude call is actually in flight for the action (`claude-activity`
+   an agent call is actually in flight for the action (`agent-activity`
    event), so a mixed script/AI action changes color mid-flight. */
 @property --glow-angle {
   syntax: "<angle>";
@@ -2629,5 +2629,16 @@ body {
 }
 
 .notice-banner-dismiss:hover {
+  color: var(--text);
+}
+
+/* One-time Codex hook-trust instructions (CodexHooksDialog). */
+.codex-hooks-dialog {
+  max-width: 420px;
+}
+.codex-hooks-lead {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--text);
 }

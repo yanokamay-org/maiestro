@@ -1,5 +1,5 @@
 //! Pull-request lifecycle for a spawned session's branch: surface the linked PR,
-//! create one (Claude-drafted, pushing the branch first), report its checks/merge
+//! create one (drafted by the repo's agent, pushing the branch first), report its checks/merge
 //! readiness, and merge it after reconciling the local worktree.
 //!
 //! All GitHub access is via the repo's identity token (no `gh`); the polled
@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::drafting::{claude_text, parse_issue_draft, ClaudeActivity};
+use crate::drafting::{agent_text, parse_issue_draft, AgentActivity};
 use crate::gitops::{git, git_net};
 use crate::plugins::GitHub;
 use crate::repo_context::repo_context;
@@ -103,7 +103,7 @@ async fn change_summary(work_dir: &Path, base: &str) -> String {
     format!("Commits:\n{log}\n\nDiff:\n{diff_section}")
 }
 
-/// Create a draft pull request for a session's branch, with a Claude-drafted
+/// Create a draft pull request for a session's branch, with an agent-drafted
 /// title and description. Pushes the branch to origin first (mAIestro Code's own
 /// local-git op, like `git worktree add` — the launched session's own pushes are
 /// separate), reuses an already-open PR instead of duplicating, and links the PR
@@ -169,16 +169,19 @@ pub async fn session_create_pr(
         number = session.issue_number,
     );
 
-    // Draft via Claude. If drafting fails (claude errored, or its reply had no
+    // Draft via the repo's *current* agent — not the session record's: a repo
+    // switched to Codex (and with Claude uninstalled) still drafts PRs for its
+    // older Claude worktrees. If drafting fails (the agent errored, or its reply had no
     // parseable {title, body}), log and propagate the error and abort *before*
     // pushing or opening the PR — we'd rather tell the user why than open a
     // garbage PR. The PR draft reuses the issue-draft parser but only needs
     // title + body.
-    let activity = ClaudeActivity::new(app, request_id);
-    let model = crate::prompts::model(&settings.prompt_model);
-    let reply = claude_text(&work_dir, &prompt, &model, "drafting the PR", Some(&activity))
+    let activity = AgentActivity::new(app, request_id);
+    let agent = crate::repo_settings::effective_agent(&settings);
+    let model = crate::prompts::model(&settings.prompt_models, agent);
+    let reply = agent_text(agent, &work_dir, &prompt, model.as_deref(), "drafting the PR", Some(&activity))
         .await
-        .map_err(|e| { tracing::warn!(error = %e, "Claude PR draft failed"); e })?;
+        .map_err(|e| { tracing::warn!(error = %e, agent = %agent, "PR draft failed"); e })?;
     let (title, body, _) = parse_issue_draft(&reply)
         .map_err(|e| { tracing::warn!(error = %e, "PR draft reply was unparseable"); e })?;
 

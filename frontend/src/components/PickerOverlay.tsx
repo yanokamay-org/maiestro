@@ -23,7 +23,7 @@ export type Preview = {
   origTitle: string;
   origBody: string;
   spawning: boolean;
-  // True while Claude's short-title suggestion is in flight, so the Session name
+  // True while the agent's short-title suggestion is in flight, so the Session name
   // field shows a "generating title" rainbow indicator.
   suggesting?: boolean;
   error?: string;
@@ -39,16 +39,16 @@ export type Picker = {
   // Which create button is in flight, so we can disable both and spin the
   // active one. Undefined when idle.
   creating?: "create" | "spawn";
-  // Request id of the in-flight draft, correlating `claude-activity` events so
-  // the busy glow turns rainbow exactly while Claude is drafting.
+  // Request id of the in-flight draft, correlating `agent-activity` events so
+  // the busy glow turns rainbow exactly while the agent is drafting.
   creatingRequestId?: string;
   // True while the issue list is being re-fetched via the refresh button.
   refreshing?: boolean;
   // Issue number whose spawn preview is currently being prepared (the row's
   // "Spawn Work" button glows until the preview opens or preparation fails).
   preparing?: number;
-  // Set when Claude couldn't draft a clear issue: holds the original idea and
-  // Claude's reply, prompting the user to confirm creating from raw text.
+  // Set when the agent couldn't draft a clear issue: holds the original idea and
+  // the agent's reply, prompting the user to confirm creating from raw text.
   // `action` records which button triggered it, so the retry repeats it.
   confirm?: { idea: string; message: string; action: "create" | "spawn" };
   // When set, the overlay shows the spawn preview instead of the issue list.
@@ -293,7 +293,7 @@ export function PickerOverlay({
             )}
             {picker.confirm && (
               <div className="confirm-block">
-                <p className="confirm-lead">Claude couldn’t turn this into a clear issue:</p>
+                <p className="confirm-lead">The agent couldn’t turn this into a clear issue:</p>
                 <p className="confirm-msg">{picker.confirm.message}</p>
                 <div className="issue-actions">
                   <button className="btn-save" onClick={onConfirmRaw}>Create issue from my text</button>

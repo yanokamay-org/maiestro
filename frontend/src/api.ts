@@ -14,13 +14,25 @@ export interface PromptOverrides {
   draft_pr: string | null;
 }
 
+/** The coding agent a repo runs (sessions and mAIestro Code's own drafting). */
+export type Agent = "claude" | "codex";
+
+/** The drafting model per agent; null/empty = that entry's schema default
+ *  (`haiku` for Claude; Codex's own configured model for Codex). */
+export interface PromptModels {
+  claude: string | null;
+  codex: string | null;
+}
+
 export interface RepoSettings {
   repo: string;
   cloned_repo_dir: string | null;
   worktree_prefix: string | null;
   env_files: string[];
   post_spawn_commands: string[];
-  prompt_model: string | null;
+  /** null = use the global `agent` setting. */
+  agent: Agent | null;
+  prompt_models: PromptModels;
   identity_id: string | null;
   hidden: HideState | null;
   prompts: PromptOverrides;
@@ -102,6 +114,8 @@ export interface Session {
   session_title: string;
   color: string;
   emoji: string;
+  /** The agent this worktree was spawned with (fixed at spawn). */
+  agent: Agent;
   hidden: HideState | null;
 }
 
@@ -131,8 +145,8 @@ export interface PrChecks {
   mergeable_state: string;
 }
 
-/** The live Claude session state, from the `maiestro hook` helper. `creating` is
- *  mAIestro Code's own pre-Claude state; the rest map from Claude Code hook events. */
+/** The live agent session state, from the `maiestro hook` helper. `creating` is
+ *  mAIestro Code's own pre-agent state; the rest map from Claude Code / Codex hook events. */
 export type SessionState = "creating" | "running" | "busy" | "needs_you" | "idle" | "ended";
 
 /** Live per-session status, written by the `maiestro hook` helper and watched
@@ -152,7 +166,8 @@ export interface StatusRecord {
 }
 
 /** A failed tool call from a `PostToolUseFailure` hook. Logged on every failure
- *  but only shown in the popover once `surfaced` is true (issue #48). */
+ *  but only shown in the popover once `surfaced` is true (issue #48). Claude
+ *  sessions only — Codex has no failed-tool hook. */
 export interface ToolError {
   tool?: string;
   message: string;
@@ -180,6 +195,7 @@ export type Theme = "light" | "dark" | "system";
  *  auto-resolve (login-shell PATH → which → known locations). */
 export interface ToolPaths {
   claude?: string | null;
+  codex?: string | null;
   git?: string | null;
   code?: string | null;
 }
@@ -190,6 +206,8 @@ export interface AppSettings {
   /** Fields are omitted from the wire entirely when unset (serde skips `None`),
    *  so they are optional here, not just nullable. */
   theme?: Theme | null;
+  /** Default agent for repos that don't pick one. null = the schema default. */
+  agent?: Agent | null;
   tool_paths?: ToolPaths | null;
   /** Font stack for a spawned worktree's VS Code terminal
    *  (`terminal.integrated.fontFamily`). null/empty = the schema default. */
@@ -376,6 +394,12 @@ export const api = {
 
   openInEditor: (workDir: string) =>
     invoke<void>("open_in_editor", { workDir }),
+
+  /** Whether opening this session (or spawning in this repo, with no session)
+   *  starts a Codex session that will ask the user to review mAIestro Code's
+   *  status hooks. Always false for Claude, and on any error. */
+  codexHooksReviewNeeded: (repo: string, sessionId?: string) =>
+    invoke<boolean>("codex_hooks_review_needed", { repo, sessionId: sessionId ?? null }).catch(() => false),
 
   openRepoInEditor: (repo: string) =>
     invoke<void>("open_repo_in_editor", { repo }),

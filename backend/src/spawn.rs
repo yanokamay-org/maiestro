@@ -9,13 +9,14 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::drafting::{resolve_draft, ClaudeActivity, DraftStep};
+use crate::agent::Agent;
+use crate::drafting::{resolve_draft, AgentActivity, DraftStep};
 use crate::editor::{
     close_editor_window, open_vscode, probe_editor_window, window_marker, worktree_in_use,
     write_vscode_files, WinProbe,
 };
 use crate::gitops::{git, git_net, local_branch_exists};
-use crate::hooks::{reconcile_session_hooks, write_claude_hooks};
+use crate::hooks::{reconcile_session_hooks, write_session_hooks};
 use crate::naming::{default_short_title, slugify};
 use crate::paths::expand_tilde;
 use crate::plugins::GitHub;
@@ -145,7 +146,8 @@ fn work_parent_of(work_dir: &Path) -> String {
 
 /// Regenerate a reused worktree's `.vscode` files from its recorded session, so
 /// reopening picks up changes to what we generate (the session color, the window
-/// marker, the startup task) without needing a fresh spawn.
+/// marker, the startup task) without needing a fresh spawn. The agent comes from
+/// the record too, so a worktree keeps launching the agent it was spawned with.
 ///
 /// Deliberately sourced from the session record rather than the caller's freshly
 /// picked theme: reopening a worktree must not re-theme it. Best-effort — a
@@ -160,6 +162,7 @@ fn refresh_vscode_files(work_dir: &Path, workspace: &str) {
         &work_parent_of(work_dir),
         &session.color,
         &session.session_title,
+        session.agent,
     ) {
         tracing::warn!(error = %e, "could not refresh .vscode files on reuse");
     }
@@ -177,6 +180,7 @@ struct SpawnBg {
     workspace: String,
     session_title: String,
     color: String,
+    agent: Agent,
     default_branch: String,
     repo: String,
     issue_number: u64,
@@ -234,8 +238,11 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
             // Tag this span (and every log line it emits) with the session id.
             tracing::Span::current().record("session", workspace.as_str());
             // Reopening doesn't rewrite hooks, so heal a stale binary path here
-            // too (without waiting for the next startup reconcile).
-            reconcile_session_hooks(&work_dir, &workspace);
+            // too (without waiting for the next startup reconcile). The agent is
+            // the recorded one, never the repo's current setting.
+            if let Some(session) = crate::sessions::get(&workspace) {
+                reconcile_session_hooks(&work_dir, &workspace, session.agent);
+            }
             // Same for the generated `.vscode` files, so a worktree spawned
             // before a change to them (e.g. the session color) picks it up.
             refresh_vscode_files(&work_dir, &workspace);
@@ -259,6 +266,9 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
 
     let session_title = format!("{emoji} {session_label}");
     let work_parent = work_parent_of(&work_dir);
+    // Fixed at spawn and recorded, so later changes to the repo's agent never
+    // switch this worktree over.
+    let agent = crate::repo_settings::effective_agent(&settings);
 
     // Record the session up front so the dashboard shows the row immediately
     // (and so its color counts as taken for the next spawn) — the worktree it
@@ -276,6 +286,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
         session_title: session_title.clone(),
         color: color.to_string(),
         emoji: emoji.to_string(),
+        agent,
         hidden: None,
     };
     crate::sessions::save(&session).map_err(|e| format!("could not record session: {e}"))?;
@@ -294,6 +305,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
         workspace: workspace.clone(),
         session_title,
         color: color.to_string(),
+        agent,
         default_branch: default_branch.to_string(),
         repo: repo.to_string(),
         issue_number,
@@ -306,7 +318,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
     };
     tokio::spawn(finish_spawn(bg));
 
-    tracing::info!(repo = %repo, issue = issue_number, branch = %branch, reused = false, "spawn started (building worktree in background)");
+    tracing::info!(repo = %repo, issue = issue_number, branch = %branch, agent = %agent, reused = false, "spawn started (building worktree in background)");
     Ok(SpawnResult {
         session_id: workspace,
         work_dir: work_dir.display().to_string(),
@@ -319,7 +331,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
 
 /// Background phase of a fresh spawn: build the worktree and launch the editor
 /// after `do_spawn` has already returned. On success the `creating` marker is
-/// cleared (handing the status over to Claude's hooks); on a fatal failure it's
+/// cleared (handing the status over to the agent's hooks); on a fatal failure it's
 /// replaced with a surfaced error the popover shows on the row. Carries the
 /// `session=` span so its log lines join the rest of the spawn's story.
 async fn finish_spawn(bg: SpawnBg) {
@@ -394,9 +406,10 @@ async fn do_finish_spawn(bg: &SpawnBg) -> Result<Vec<String>, String> {
                     "🤖 Spawned a local workspace for this issue.\n\n\
                      - **GitHub Branch:** `{}`\n\
                      - **Local Directory:** `{}`\n\
-                     - **Claude Session:** `{}`\n",
+                     - **{} Session:** `{}`\n",
                     bg.branch,
                     bg.work_dir.display(),
+                    bg.agent.display_name(),
                     bg.session_title,
                 );
                 if let Err(e) = bg.gh.create_comment(&bg.repo, bg.issue_number, &body).await {
@@ -409,15 +422,15 @@ async fn do_finish_spawn(bg: &SpawnBg) -> Result<Vec<String>, String> {
         Err(e) => warnings.push(format!("could not resolve token user for assignment: {e}")),
     }
 
-    write_vscode_files(&bg.work_dir, &bg.work_parent, &bg.color, &bg.session_title)?;
-    write_claude_hooks(&bg.work_dir, &bg.workspace).await?;
+    write_vscode_files(&bg.work_dir, &bg.work_parent, &bg.color, &bg.session_title, bg.agent)?;
+    write_session_hooks(&bg.work_dir, &bg.workspace, bg.agent).await?;
 
     // Run the repo's post-spawn commands (e.g. `pnpm install`) in the new
     // worktree before opening the editor, so the session starts ready.
     warnings.extend(run_post_spawn_commands(&bg.work_dir, &bg.post_spawn_commands).await);
 
     // Worktree is ready: clear the `creating` marker before opening the editor,
-    // so Claude's SessionStart hook (fired only once VS Code launches it) owns
+    // so the agent's SessionStart hook (fired only once VS Code launches it) owns
     // the status from here without us racing to clobber it.
     crate::status::clear_creating(&bg.workspace);
 
@@ -570,7 +583,7 @@ pub async fn prepare_spawn(repo: String, issue_number: u64) -> Result<SpawnPlan,
 }
 
 /// Result of drafting a spawn preview from a free-text idea: a ready preview, or
-/// a needs-confirmation prompt (Claude couldn't draft a clear issue).
+/// a needs-confirmation prompt (the agent couldn't draft a clear issue).
 #[derive(serde::Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DraftPreviewOutcome {
@@ -578,7 +591,7 @@ pub enum DraftPreviewOutcome {
     NeedsConfirmation { message: String },
 }
 
-/// Draft an issue from the user's idea (one Claude call, which also yields the
+/// Draft an issue from the user's idea (one agent call, which also yields the
 /// short label) and return a preview — WITHOUT creating the issue. The issue is
 /// only opened when the user confirms via `confirm_spawn`.
 #[tauri::command]
@@ -590,7 +603,7 @@ pub async fn draft_spawn_preview(
     request_id: String,
 ) -> Result<DraftPreviewOutcome, String> {
     crate::log_invoke!("draft_spawn_preview", repo = %repo, use_raw_fallback);
-    let activity = ClaudeActivity::new(app, request_id);
+    let activity = AgentActivity::new(app, request_id);
     let (_gh, step) = resolve_draft(&repo, &idea, use_raw_fallback, &activity).await?;
     match step {
         DraftStep::Ready { title, body, short_title, .. } => {

@@ -4,24 +4,30 @@
 //!
 //! mAIestro Code launches sessions but does not host them (see CLAUDE.md): these fns
 //! open a real VS Code window whose integrated terminal starts the user-facing
-//! Claude session, and later close it. Window control goes through System Events
+//! agent session, and later close it. Window control goes through System Events
 //! (`osascript`) rather than direct Apple events, matching `focus_editor_window`
 //! and avoiding a second Automation grant. Extracted from `spawn.rs` (issue #99).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::agent::Agent;
 use crate::tools::shell_quote;
 
 // ── VS Code workspace files ─────────────────────────────────────────────────────
 
 /// Write the worktree's `.vscode/{settings,tasks}.json`: title-bar theming keyed
 /// to `color`, a `window.title` marker teardown finds the window by, and a
-/// folder-open task that starts the user-facing Claude session in the integrated
-/// terminal — themed to the same `color` via `/color`, so the session UI matches
-/// the title bar and the popover row, and invoked through the resolved `claude`
-/// path rather than PATH.
-pub fn write_vscode_files(work_dir: &Path, work_parent: &str, color: &str, session_title: &str) -> Result<(), String> {
+/// folder-open task that starts the user-facing `agent` session in the integrated
+/// terminal (see [`session_command`]), invoked through the resolved agent path
+/// rather than PATH.
+pub fn write_vscode_files(
+    work_dir: &Path,
+    work_parent: &str,
+    color: &str,
+    session_title: &str,
+    agent: Agent,
+) -> Result<(), String> {
     let vscode = work_dir.join(".vscode");
     std::fs::create_dir_all(&vscode).map_err(|e| e.to_string())?;
 
@@ -58,39 +64,11 @@ pub fn write_vscode_files(work_dir: &Path, work_parent: &str, color: &str, sessi
     )
     .map_err(|e| e.to_string())?;
 
-    // Folder-open task that starts a real, user-facing Claude session in the
-    // integrated terminal. --remote-control lets the user drive the session
-    // remotely; mAIestro Code still only launches it, it does not host it. --name
-    // gives the session the same display name mAIestro Code tracks it by, and the
-    // trailing `/color <name>` prompt carries the worktree's theme into the
-    // session UI so it matches the dashboard row and the title bar.
-    //
-    // The color goes through the initial *prompt* rather than a flag because
-    // Claude Code's `--agent-color` is only honored alongside
-    // `--agent-id`/`--agent-name`/`--team-name` (teammate sessions); passing it
-    // on its own is silently ignored. A leading-slash initial prompt is
-    // dispatched as a command, so it costs one line in the transcript and no
-    // model call.
-    //
-    // The binary is the **resolved** `claude` path (`tools::resolve_tool`), not a
-    // bare `claude` left to PATH (issue #134). The task runs in VS Code's
-    // integrated terminal, whose PATH is whatever the VS Code process inherited —
-    // and when mAIestro Code launched that VS Code from the packaged bundle at login,
-    // that can be the minimal Launch Services PATH with no `claude` on it. The
-    // same `tool_paths.claude` override that pins mAIestro Code's own drafting calls
-    // therefore also decides which binary the session starts with. When nothing
-    // concrete resolves, `resolve_tool` yields the bare name, i.e. exactly the
-    // previous behavior.
-    let command = format!(
-        "{} --remote-control --name {} {}",
-        shell_quote(&crate::tools::resolve_tool("claude").to_string_lossy()),
-        shell_quote(session_title),
-        shell_quote(&format!("/color {}", crate::theming::claude_color(color)))
-    );
+    let command = session_command(agent, color, session_title);
     let tasks = serde_json::json!({
         "version": "2.0.0",
         "tasks": [{
-            "label": "Start Claude",
+            "label": format!("Start {}", agent.display_name()),
             "type": "shell",
             "command": command,
             "isBackground": true,
@@ -105,6 +83,51 @@ pub fn write_vscode_files(work_dir: &Path, work_parent: &str, color: &str, sessi
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The shell command the folder-open task runs to start a real, user-facing
+/// `agent` session in the integrated terminal.
+///
+/// **Claude:** `--remote-control` lets the user drive the session remotely;
+/// mAIestro Code still only launches it, it does not host it. `--name` gives the
+/// session the same display name mAIestro Code tracks it by, and the trailing
+/// `/color <name>` prompt carries the worktree's theme into the session UI so it
+/// matches the dashboard row and the title bar. The color goes through the
+/// initial *prompt* rather than a flag because Claude Code's `--agent-color` is
+/// only honored alongside `--agent-id`/`--agent-name`/`--team-name` (teammate
+/// sessions); passing it on its own is silently ignored. A leading-slash initial
+/// prompt is dispatched as a command, so it costs one line in the transcript and
+/// no model call.
+///
+/// **Codex:** the binary plus mAIestro Code's status hooks as `-c hooks.…`
+/// session flags (`hooks::codex_hook_overrides`) — identical for every worktree,
+/// so the user's one-time Codex hook trust covers them all. No initial prompt:
+/// Codex has no `--name` or `/color`, and any prompt would start a real model
+/// turn, so the session carries no name or color of its own — the VS Code bars
+/// are still themed.
+///
+/// Either way the binary is the **resolved** agent path (`tools::resolve_tool`),
+/// not a bare name left to PATH (issue #134). The task runs in VS Code's
+/// integrated terminal, whose PATH is whatever the VS Code process inherited —
+/// and when mAIestro Code launched that VS Code from the packaged bundle at login,
+/// that can be the minimal Launch Services PATH with no agent on it. The same
+/// `tool_paths` override that pins mAIestro Code's own drafting calls therefore
+/// also decides which binary the session starts with. When nothing concrete
+/// resolves, `resolve_tool` yields the bare name, i.e. exactly the previous
+/// behavior.
+fn session_command(agent: Agent, color: &str, session_title: &str) -> String {
+    let bin = shell_quote(&crate::tools::resolve_tool(agent.tool()).to_string_lossy());
+    match agent {
+        Agent::Claude => format!(
+            "{bin} --remote-control --name {} {}",
+            shell_quote(session_title),
+            shell_quote(&format!("/color {}", crate::theming::claude_color(color)))
+        ),
+        Agent::Codex => std::iter::once(bin)
+            .chain(crate::hooks::codex_hook_overrides().iter().map(|o| format!("-c {}", shell_quote(o))))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 // ── Launch / focus ──────────────────────────────────────────────────────────────
@@ -276,7 +299,7 @@ return "absent""#
 }
 
 /// Permission-free safety net: is any process's working directory inside this
-/// worktree? Our spawned `claude` runs in VS Code's integrated terminal with its
+/// worktree? Our spawned agent (`claude` or `codex`) runs in VS Code's integrated terminal with its
 /// cwd in the worktree, so this catches the common "still open" case without
 /// needing Accessibility. Uses `lsof -d cwd` (process CWDs only) to avoid the
 /// slow tree walk that `lsof +D` would do over a full cloned repo.
@@ -318,6 +341,7 @@ pub fn open_accessibility_settings() {
 #[cfg(test)]
 mod tests {
     use super::{path_at_or_under, write_vscode_files};
+    use crate::agent::Agent;
 
     /// The generated folder-open task carries the worktree's theme into the
     /// session as a `/color <name>` initial prompt, quoted as one argv entry, and
@@ -326,7 +350,7 @@ mod tests {
     #[test]
     fn startup_task_themes_the_session() {
         let dir = tempfile::tempdir().unwrap();
-        write_vscode_files(dir.path(), "work-127-add-session-color", "#c46686", "\u{1f380} #127 \u{2014} Add session color").unwrap();
+        write_vscode_files(dir.path(), "work-127-add-session-color", "#c46686", "\u{1f380} #127 \u{2014} Add session color", Agent::Claude).unwrap();
 
         let tasks: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/tasks.json")).unwrap()).unwrap();
@@ -334,7 +358,7 @@ mod tests {
         assert!(command.contains("'/color pink'"), "not themed: {command}");
         assert!(command.contains("--name '\u{1f380} #127 \u{2014} Add session color'"), "not named: {command}");
 
-        write_vscode_files(dir.path(), "work-1-x", "#nonsense", "x").unwrap();
+        write_vscode_files(dir.path(), "work-1-x", "#nonsense", "x", Agent::Claude).unwrap();
         let tasks: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/tasks.json")).unwrap()).unwrap();
         assert!(tasks["tasks"][0]["command"].as_str().unwrap().contains("'/color default'"));
@@ -346,7 +370,7 @@ mod tests {
     #[test]
     fn startup_task_uses_the_resolved_claude_path() {
         let dir = tempfile::tempdir().unwrap();
-        write_vscode_files(dir.path(), "work-134-x", "#c46686", "x").unwrap();
+        write_vscode_files(dir.path(), "work-134-x", "#c46686", "x", Agent::Claude).unwrap();
 
         let tasks: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/tasks.json")).unwrap()).unwrap();
@@ -363,12 +387,36 @@ mod tests {
     #[test]
     fn terminal_font_comes_from_preferences() {
         let dir = tempfile::tempdir().unwrap();
-        write_vscode_files(dir.path(), "work-134-x", "#c46686", "x").unwrap();
+        write_vscode_files(dir.path(), "work-134-x", "#c46686", "x", Agent::Claude).unwrap();
 
         let settings: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/settings.json")).unwrap()).unwrap();
         let font = settings["terminal.integrated.fontFamily"].as_str().unwrap();
         assert_eq!(font, crate::app_settings::terminal_font_family());
+    }
+
+    /// A Codex worktree's task runs the resolved `codex` binary with the status
+    /// hooks as `-c` session flags — no `--name`, no `/color`, no initial prompt —
+    /// under a "Start Codex" label, while the VS Code bars are still themed.
+    #[test]
+    fn codex_task_runs_the_bare_resolved_codex() {
+        let dir = tempfile::tempdir().unwrap();
+        write_vscode_files(dir.path(), "work-162-x", "#c46686", "x", Agent::Codex).unwrap();
+
+        let tasks: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/tasks.json")).unwrap()).unwrap();
+        let task = &tasks["tasks"][0];
+        let expected = crate::tools::shell_quote(&crate::tools::resolve_tool("codex").to_string_lossy());
+        let command = task["command"].as_str().unwrap();
+        assert!(command.starts_with(&format!("{expected} -c 'hooks.SessionStart=")), "{command}");
+        assert_eq!(command.matches(" -c ").count(), 7, "{command}");
+        assert!(!command.contains("/color") && !command.contains("--name"), "{command}");
+        assert_eq!(task["label"], "Start Codex");
+        assert_eq!(task["runOptions"]["runOn"], "folderOpen");
+
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/settings.json")).unwrap()).unwrap();
+        assert_eq!(settings["workbench.colorCustomizations"]["titleBar.activeBackground"], "#c46686");
     }
 
     #[test]

@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod about;
+mod agent;
 mod app_settings;
 mod credentials;
 mod drafting;
@@ -352,6 +353,7 @@ fn main() {
             spawn::confirm_spawn,
             spawn::create_issue_direct,
             editor::open_in_editor,
+            hooks::codex_hooks_review_needed,
             editor::open_repo_in_editor,
             spawn::teardown,
             editor::open_accessibility_settings,

@@ -20,6 +20,7 @@ import { SettingsProblemBanner } from "./components/SettingsProblemBanner";
 import { HideCommandButton, SnoozeLabel } from "./components/HideControls";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { HideSnoozeDialog } from "./components/HideSnoozeDialog";
+import { CodexHooksDialog } from "./components/CodexHooksDialog";
 import { SessionRow, TeardownPrompt, PrCreateState, PrMergeState } from "./components/SessionRow";
 import { PickerOverlay, Picker, Preview, Expand } from "./components/PickerOverlay";
 import LogoIcon from "./icons/logo.svg?react";
@@ -65,17 +66,17 @@ export function MainView() {
   const [teardownBusy, setTeardownBusy] = useState<Record<string, boolean>>({});
   // Create-PR progress/error per session id: `{ creating }` while in flight,
   // `{ error }` after a failure. Absent = idle. `requestId` correlates
-  // `claude-activity` events to this action's busy glow.
+  // `agent-activity` events to this action's busy glow.
   const [prCreate, setPrCreate] = useState<Record<string, PrCreateState>>({});
   // PR check status per session id, polled from GitHub while the popover is open.
   // Absent = not yet fetched; null = no open PR (or lookup failed).
   const [prChecks, setPrChecks] = useState<Record<string, PrChecks | null>>({});
   // Merge-PR state per session id. `intent` keeps the auto-merge watcher armed
   // until the PR lands; `merging` guards against overlapping merge attempts.
-  // `requestId` correlates `claude-activity` events (the merge drafts the PR
-  // via Claude when none exists yet) to this action's busy glow.
+  // `requestId` correlates `agent-activity` events (the merge drafts the PR
+  // via the agent when none exists yet) to this action's busy glow.
   const [prMerge, setPrMerge] = useState<Record<string, PrMergeState>>({});
-  // Request ids with a Claude call currently in flight (`claude-activity`
+  // Request ids with an agent call currently in flight (`agent-activity`
   // events). A busy button whose request id is here glows rainbow instead of
   // the monochrome sweep; absent = plain. Missed events degrade to monochrome.
   const [aiActive, setAiActive] = useState<Record<string, boolean>>({});
@@ -94,6 +95,8 @@ export function MainView() {
   const [openSessionErr, setOpenSessionErr] = useState<Record<string, string>>({});
   // Target of the hide/snooze dialog, or null when closed.
   const [hideTarget, setHideTarget] = useState<HideTarget | null>(null);
+  // A spawn or reopen waiting on the one-time Codex hook-trust notice.
+  const [hooksNotice, setHooksNotice] = useState<{ proceed: () => void } | null>(null);
   // Repo (full_name) awaiting remove confirmation; at most one at a time.
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   // Per-repo removal failure message, keyed by repo full_name.
@@ -191,10 +194,10 @@ export function MainView() {
     });
   });
 
-  // Live Claude-call signal from the backend: while a request id is active its
+  // Live agent-call signal from the backend: while a request id is active its
   // button's busy glow turns rainbow (AI), reverting to the monochrome sweep
   // when the call ends — so mixed script/AI actions change color mid-flight.
-  useTauriListen<{ request_id: string; active: boolean }>("claude-activity", ({ request_id, active }) => {
+  useTauriListen<{ request_id: string; active: boolean }>("agent-activity", ({ request_id, active }) => {
     setAiActive((prev) => {
       if (!active) {
         const { [request_id]: _drop, ...rest } = prev;
@@ -204,14 +207,14 @@ export function MainView() {
     });
   });
 
-  // Busy classes for a button whose backend command can run Claude: rainbow
-  // while its request id has a Claude call in flight, monochrome otherwise.
+  // Busy classes for a button whose backend command can run the agent: rainbow
+  // while its request id has an agent call in flight, monochrome otherwise.
   const busyCls = (requestId?: string) =>
     requestId && aiActive[requestId] ? "btn-busy btn-busy--ai" : "btn-busy";
 
   // Busy-ring classes for the row's "working" pill: rainbow (AI) while the
-  // operation's Claude call is in flight, single-hue (non-AI) otherwise — so a
-  // Create PR glows rainbow while Claude drafts the body, then reverts for the
+  // operation's agent call is in flight, single-hue (non-AI) otherwise — so a
+  // Create PR glows rainbow while the agent drafts the body, then reverts for the
   // git push/merge. Teardown passes no request id and stays monochrome.
   const busyRingCls = (requestId?: string) =>
     requestId && aiActive[requestId] ? "busy-ring busy-ring--ai" : "busy-ring";
@@ -309,14 +312,14 @@ export function MainView() {
       // name field until the AI suggestion lands (or the call fails).
       setPicker((p) => (p ? { ...p, preparing: undefined, note: undefined, preview: { ...planToPreview(plan, "spawn"), suggesting: true } } : p));
       // Fire-and-forget: upgrade the heuristic label to an AI suggestion once
-      // Claude replies. The preview is already open and usable meanwhile.
+      // the agent replies. The preview is already open and usable meanwhile.
       void suggestLabel(repo, node.number, plan.short_title);
     } catch (e) {
       setPicker((p) => (p ? { ...p, preparing: undefined, note: `Failed to prepare #${node.number}: ${String(e)}` } : p));
     }
   }
 
-  // Swap the spawn preview's short label for Claude's suggestion — only if the
+  // Swap the spawn preview's short label for the agent's suggestion — only if the
   // preview is still open for this same issue and the field still holds the
   // heuristic value (the user hasn't typed). Failures are silent: the
   // heuristic label is a fine fallback.
@@ -349,6 +352,15 @@ export function MainView() {
     setPicker((p) => (p ? { ...p, preview: undefined, note: undefined } : p));
   }
 
+  // Before VS Code opens a Codex session that will ask the user to review our
+  // status hooks, explain the one-time `/hooks` → trust all step. The backend
+  // asks Codex itself, so this only shows when Codex really will prompt; the
+  // action runs on "Open in VS Code" and is dropped on Cancel.
+  async function withCodexHooksNotice(repo: string, sessionId: string | undefined, proceed: () => void) {
+    if (await api.codexHooksReviewNeeded(repo, sessionId)) setHooksNotice({ proceed });
+    else proceed();
+  }
+
   // Confirm a spawn preview: create/update the issue, then spawn. On success the
   // overlay closes and we land back in the main window.
   async function confirmSpawnNow() {
@@ -356,6 +368,10 @@ export function MainView() {
     const repo = picker.repo;
     const pv = picker.preview;
     if (!pv.shortTitle.trim() || !pv.issueTitle.trim()) return;
+    withCodexHooksNotice(repo, undefined, () => void spawnFromPreview(repo, pv));
+  }
+
+  async function spawnFromPreview(repo: string, pv: NonNullable<Picker["preview"]>) {
     setPreview({ spawning: true, error: undefined });
     const edits: SpawnEdits = {
       issue_number: pv.issueNumber,
@@ -419,7 +435,7 @@ export function MainView() {
   }
 
   // Idea → AI draft → preview (issue isn't opened until confirm). `mode` picks
-  // create-only vs. spawn; `raw` skips Claude's clarity gate on a retry.
+  // create-only vs. spawn; `raw` skips the agent's clarity gate on a retry.
   async function draftIdea(mode: "create" | "spawn", idea: string, raw = false) {
     if (!picker) return;
     const repo = picker.repo;
@@ -435,14 +451,14 @@ export function MainView() {
     }
   }
 
-  // User chose to proceed from their raw text despite Claude's prompt. Repeats
+  // User chose to proceed from their raw text despite the agent's reply. Repeats
   // whichever action raised it, landing on its preview built from the raw text.
   function confirmRaw() {
     if (!picker?.confirm) return;
     draftIdea(picker.confirm.action, picker.confirm.idea, true);
   }
 
-  // "Create PR": push the branch, draft a description with Claude, and open a
+  // "Create PR": push the branch, draft a description with the agent, and open a
   // draft PR. On success the PR pill refreshes to link the new PR (we don't
   // open it in the browser — the pill is the entry point).
   async function createPr(s: Session) {
@@ -594,9 +610,11 @@ export function MainView() {
   // launcher CLI can be missing — the health check tests for exactly this).
   const clearSessionOpenErr = (id: string) =>
     setOpenSessionErr((m) => { const { [id]: _drop, ...rest } = m; return rest; });
-  function openSessionInEditor(id: string, dir: string) {
+  function openSessionInEditor(id: string, repo: string, dir: string) {
     clearSessionOpenErr(id); // clear a stale error before retrying, like the repo-level button
-    api.openInEditor(dir).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+    withCodexHooksNotice(repo, id, () => {
+      api.openInEditor(dir).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+    });
   }
   function revealSessionPath(id: string, dir: string) {
     clearSessionOpenErr(id);
@@ -756,7 +774,7 @@ export function MainView() {
                             busyCls={busyCls}
                             busyRingCls={busyRingCls}
                             onToggleCommands={() => setCommandsOpen((id) => (id === s.id ? null : s.id))}
-                            onOpenInEditor={() => openSessionInEditor(s.id, s.work_dir)}
+                            onOpenInEditor={() => openSessionInEditor(s.id, s.repo, s.work_dir)}
                             onOpenPath={() => revealSessionPath(s.id, s.work_dir)}
                             onOpenUrl={(url) => api.openUrl(url)}
                             onOpenAccessibilitySettings={() => api.openAccessibilitySettings()}
@@ -824,6 +842,13 @@ export function MainView() {
           />
         );
       })()}
+
+      {hooksNotice && (
+        <CodexHooksDialog
+          onContinue={() => { const { proceed } = hooksNotice; setHooksNotice(null); proceed(); }}
+          onClose={() => setHooksNotice(null)}
+        />
+      )}
 
       {hideTarget && (
         <HideSnoozeDialog

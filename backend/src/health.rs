@@ -1,7 +1,8 @@
 //! Per-repo prerequisite health check (issue #93).
 //!
 //! `repo_health_check` runs a set of informational diagnostics for one tracked
-//! repo — cloned checkout, the CLIs mAIestro Code invokes (`git`, `claude`, `code`),
+//! repo — cloned checkout, the CLIs mAIestro Code invokes (`git`, the repo's agent
+//! — `claude` or `codex`, never both — and `code`),
 //! the GitHub token *and the permissions it grants*, the configured env files,
 //! the worktree terminal font, and (trailing, issue #146) how old each directly
 //! invoked CLI is against a hardcoded minimum — and returns a `HealthReport` the
@@ -14,6 +15,7 @@
 //! OAuth scopes (classic PATs, via `X-OAuth-Scopes`) or the repo's `permissions`
 //! object (fine-grained tokens) — see the module's `github` sub-check.
 
+use crate::agent::Agent;
 use crate::paths::expand_tilde;
 use crate::plugins::GitHub;
 use crate::repo_settings;
@@ -85,12 +87,16 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     crate::log_invoke!("repo_health_check", repo = %repo);
     let settings = repo_settings::repo_settings_get(repo.clone())?;
 
-    // The model mAIestro Code's own drafting calls would use — the claude probe runs
-    // against it so it doubles as a "is this model available?" check.
-    let model = crate::prompts::model(&settings.prompt_model);
-    // Run the probe inside the cloned repo when it exists (claude auth is global,
+    // Only the repo's agent is checked (login, model, CLI version): a Codex repo
+    // never probes, lists, or version-checks `claude`, and vice versa, so a
+    // single-agent machine gets a clean report.
+    let agent = repo_settings::effective_agent(&settings);
+    // The model mAIestro Code's own drafting calls would use — the agent probe
+    // runs against it so it doubles as a "is this model available?" check.
+    let model = crate::prompts::model(&settings.prompt_models, agent);
+    // Run the probe inside the cloned repo when it exists (agent auth is global,
     // so cwd only needs to be a real directory); otherwise let it inherit ours.
-    let claude_cwd = settings
+    let agent_cwd = settings
         .cloned_repo_dir
         .as_deref()
         .map(expand_tilde)
@@ -115,15 +121,23 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     }
     step!("Cloned repo exists", check_cloned_repo(&repo, settings.cloned_repo_dir.as_deref()).await);
     step!("Git available", check_cli("git", "Git available"));
-    // The Claude probe returns one row ("Claude logged in") with the model check
-    // nested as a sub — logged-in and model-available are distinct facts, and the
-    // parent stays green (login) even when the model sub fails.
-    step!("Claude logged in", check_claude(&repo, &model, claude_cwd.as_deref()).await);
+    // The agent probe returns one row ("Claude logged in" / "Codex logged in")
+    // with the model check nested as a sub — logged-in and model-available are
+    // distinct facts, and the parent stays green (login) even when the model
+    // sub fails.
+    let login_label = format!("{} logged in", agent.display_name());
+    match agent {
+        Agent::Claude => step!(
+            login_label,
+            check_claude(&repo, model.as_deref().unwrap_or_default(), agent_cwd.as_deref()).await
+        ),
+        Agent::Codex => step!(login_label, check_codex(&repo, model.as_deref(), agent_cwd.as_deref()).await),
+    }
     step!("GitHub token & permissions", check_github(&repo, settings.identity_id.as_deref()).await);
     step!("Session editor available", check_editor());
     step!("Configured env files exist", check_env_files(settings.cloned_repo_dir.as_deref(), &settings.env_files));
     step!("Terminal font installed", check_terminal_font());
-    step!("Tool versions", check_tool_versions(&repo).await);
+    step!("Tool versions", check_tool_versions(&repo, agent).await);
 
     Ok(HealthReport { repo, checks })
 }
@@ -438,6 +452,96 @@ fn classify_claude_envelope(env: &serde_json::Value, model: &str, login_command:
             HealthCheck::new(model_id, &model_label, HealthStatus::Fail, message),
         ),
     }
+}
+
+/// Probe Codex and return the **Codex logged in** check with a nested **model
+/// available** sub-check, mirroring [`check_claude`]'s shape:
+/// - `codex` doesn't resolve (or a pinned `tool_paths.codex` is missing) → login
+///   Fail naming the path; model Skipped.
+/// - `codex login status` exits non-zero → login Fail with `codex login` as the
+///   fix; model Skipped. This runs *first* because a logged-out `codex exec`
+///   retries for a while before failing.
+/// - Logged in, no drafting model configured (`prompt_models.codex` is `null`) →
+///   the model row is Info: drafting uses Codex's own configured model, which
+///   the login probe already vouches for.
+/// - Logged in with a model → a tiny tool-less `codex exec --model <m>` round
+///   trip; a failure there is a model Fail (you're logged in; the model is the
+///   problem), with Codex's API error as the detail.
+async fn check_codex(repo: &str, model: Option<&str>, cwd: Option<&std::path::Path>) -> HealthCheck {
+    let login_id = "codex_login";
+    let login_label = "Codex logged in";
+    let model_id = "codex_model";
+    let model_label = match model {
+        Some(m) => format!("Model `{m}` available"),
+        None => "Drafting model".to_string(),
+    };
+    let nest = |mut login: HealthCheck, model: HealthCheck| {
+        login.sub.push(model);
+        login
+    };
+    let model_row = |status: HealthStatus, detail: &str| HealthCheck::new(model_id, &model_label, status, detail);
+
+    let Some(bin) = crate::tools::find_tool("codex") else {
+        return nest(
+            HealthCheck::new(login_id, login_label, HealthStatus::Fail, tool_not_found_detail("codex")),
+            model_row(HealthStatus::Skipped, "codex not found"),
+        );
+    };
+    let login_command = format!("{} login", bin.display());
+
+    log_command(repo, "codex login status");
+    let mut cmd = crate::tools::tokio_command("codex");
+    cmd.args(["login", "status"]).kill_on_drop(true);
+    let status = match tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await {
+        Err(_) => {
+            return nest(
+                HealthCheck::new(login_id, login_label, HealthStatus::Warn, "`codex login status` timed out after 20s"),
+                model_row(HealthStatus::Skipped, "codex timed out"),
+            );
+        }
+        Ok(Err(e)) => {
+            return nest(
+                HealthCheck::new(login_id, login_label, HealthStatus::Fail, format!("Couldn't run codex: {e}")),
+                model_row(HealthStatus::Skipped, "codex couldn't run"),
+            );
+        }
+        Ok(Ok(o)) => o,
+    };
+    let status_text = {
+        let out = String::from_utf8_lossy(&status.stdout);
+        let err = String::from_utf8_lossy(&status.stderr);
+        if out.trim().is_empty() { snippet(&err) } else { snippet(&out) }
+    };
+    if !status.status.success() {
+        return nest(
+            HealthCheck::new(login_id, login_label, HealthStatus::Fail, status_text).with_command(login_command),
+            model_row(HealthStatus::Skipped, "Codex not logged in"),
+        );
+    }
+    let login = HealthCheck::new(login_id, login_label, HealthStatus::Pass, status_text);
+
+    let Some(model) = model else {
+        return nest(
+            login,
+            model_row(HealthStatus::Info, "No drafting model set — Codex uses the model configured in Codex itself"),
+        );
+    };
+
+    let out_file = std::env::temp_dir().join(format!("maiestro-codex-health-{}.txt", std::process::id()));
+    let args = crate::drafting::codex_exec_args(Some(model), &out_file);
+    log_command(repo, &format!("codex exec --model {model} … 'Reply with exactly: ok'"));
+    let run = crate::drafting::run_codex_exec(cwd, &args, "Reply with exactly: ok", std::time::Duration::from_secs(60)).await;
+    let _ = std::fs::remove_file(&out_file);
+    let model_check = match run {
+        Err(_) => model_row(HealthStatus::Warn, "codex timed out after 60s"),
+        Ok(Err(e)) => model_row(HealthStatus::Warn, &format!("Couldn't run codex: {e}")),
+        Ok(Ok(o)) if o.status.success() => model_row(HealthStatus::Pass, &format!("`{model}` responded")),
+        Ok(Ok(o)) => model_row(
+            HealthStatus::Fail,
+            &crate::drafting::codex_error_message(&String::from_utf8_lossy(&o.stderr)),
+        ),
+    };
+    nest(login, model_check)
 }
 
 /// The session editor. Today mAIestro Code always launches VS Code (`open_vscode`),
@@ -766,10 +870,11 @@ fn write_permission_check(
 // ── Tool versions (issue #146) ──────────────────────────────────────────────
 //
 // The earlier checks confirm each directly-invoked tool *resolves*
-// (`check_cli`, `check_claude`, `check_editor`); this trailing group asks how
-// old it is. mAIestro Code leans on features only newer releases have — Claude
-// Code's `--remote-control`/`--name` launch flags, the `PostToolUseFailure`
-// hook, `/color`; `git worktree`; VS Code's `--disable-workspace-trust` — so a
+// (`check_cli`, `check_claude`/`check_codex`, `check_editor`); this trailing
+// group asks how old it is. mAIestro Code leans on features only newer releases
+// have — Claude Code's `--remote-control`/`--name` launch flags, the
+// `PostToolUseFailure` hook, `/color`; Codex's hooks and `exec` flags; `git
+// worktree`; VS Code's `--disable-workspace-trust` — so a
 // stale binary can fail mid-spawn or degrade silently. A version below the
 // floor is a **`Warn`**, never a `Fail`: an old tool might still work, and this
 // report is informational like the rest of it. Floors are hardcoded constants,
@@ -793,6 +898,12 @@ const MIN_TOOL_VERSIONS: &[ToolMinimum] = &[
         label: "Claude Code",
         min: "2.0.0",
         reason: "needed for --remote-control, --name, the PostToolUseFailure hook, and /color",
+    },
+    ToolMinimum {
+        tool: "codex",
+        label: "Codex CLI",
+        min: "0.133.0",
+        reason: "needed for stable hooks (PermissionRequest, SessionEnd) and the `codex exec` flags drafting uses",
     },
     ToolMinimum {
         tool: "git",
@@ -858,14 +969,15 @@ enum VersionOutcome {
 }
 
 /// A resolved-but-unusable-`brew` path never gets an upgrade command guessed —
-/// only these two tools have an unambiguous one. `claude update` self-updates
-/// regardless of install method; `git` only offers `brew upgrade git` when the
+/// only these tools have an unambiguous one. `claude update` and `codex update`
+/// self-update regardless of install method; `git` only offers `brew upgrade git` when the
 /// resolved binary actually lives under a Homebrew prefix (Apple's Xcode-stub
 /// git and a system git can't be upgraded that way). VS Code updates itself
 /// from its own menu, so `code` never gets a command.
 fn version_upgrade_command(tool: &str, path: &std::path::Path) -> Option<String> {
     match tool {
         "claude" => Some("claude update".to_string()),
+        "codex" => Some("codex update".to_string()),
         "git" => {
             let p = path.to_string_lossy();
             (p.starts_with("/opt/homebrew/") || p.starts_with("/usr/local/")).then(|| "brew upgrade git".to_string())
@@ -951,14 +1063,24 @@ async fn check_one_tool_version(repo: &str, min: &ToolMinimum) -> HealthCheck {
     tool_version_check(min, Some(path.as_path()), outcome)
 }
 
-/// Run `<tool> --version` for every entry in [`MIN_TOOL_VERSIONS`] and return
-/// the parent "Tool versions" row with one sub-check per tool, rolled up the
-/// same way every other multi-sub group is (see [`rollup`]).
-async fn check_tool_versions(repo: &str) -> HealthCheck {
+/// Whether a [`MIN_TOOL_VERSIONS`] entry applies to a repo on `agent`: `git` and
+/// `code` always do; an agent CLI only when it is the repo's agent.
+fn tool_applies(tool: &str, agent: Agent) -> bool {
+    match tool {
+        "claude" | "codex" => tool == agent.tool(),
+        _ => true,
+    }
+}
+
+/// Run `<tool> --version` for every entry in [`MIN_TOOL_VERSIONS`] that applies
+/// to the repo's agent and return the parent "Tool versions" row with one
+/// sub-check per tool, rolled up the same way every other multi-sub group is
+/// (see [`rollup`]).
+async fn check_tool_versions(repo: &str, agent: Agent) -> HealthCheck {
     let id = "tool_versions";
     let label = "Tool versions";
     let mut sub = Vec::with_capacity(MIN_TOOL_VERSIONS.len());
-    for min in MIN_TOOL_VERSIONS {
+    for min in MIN_TOOL_VERSIONS.iter().filter(|m| tool_applies(m.tool, agent)) {
         sub.push(check_one_tool_version(repo, min).await);
     }
     let status = rollup(&sub);
@@ -1195,6 +1317,24 @@ mod tests {
         for m in MIN_TOOL_VERSIONS {
             assert!(parse_version(m.min).is_some(), "unparsable floor for {}: {}", m.tool, m.min);
         }
+    }
+
+    /// Only the repo's agent is version-checked; git and code always are.
+    #[test]
+    fn tool_versions_are_filtered_by_agent() {
+        let for_agent = |a: Agent| -> Vec<&str> {
+            MIN_TOOL_VERSIONS.iter().map(|m| m.tool).filter(|t| tool_applies(t, a)).collect()
+        };
+        assert_eq!(for_agent(Agent::Claude), vec!["claude", "git", "code"]);
+        assert_eq!(for_agent(Agent::Codex), vec!["codex", "git", "code"]);
+    }
+
+    #[test]
+    fn codex_updates_itself() {
+        assert_eq!(
+            version_upgrade_command("codex", std::path::Path::new("/opt/homebrew/bin/codex")),
+            Some("codex update".to_string())
+        );
     }
 
     fn claude_min() -> ToolMinimum {

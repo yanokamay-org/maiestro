@@ -47,8 +47,13 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro Code** to Applications.
 
-**2. Install Claude Code.** mAIestro Code launches `claude` into every workspace it
-creates, so it has to be installed and logged in first. Either installer works:
+**2. Install an agent: Claude Code or Codex CLI.** mAIestro Code launches your
+coding agent into every workspace it creates and uses it to draft issues, labels,
+and PRs, so it has to be installed and logged in first. You need **one** of the
+two, not both. Claude Code is the default. To use Codex, pick it under
+**General → Default Agent**, or per repo in that repo's settings.
+
+*Claude Code* — either installer works:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash   # native installer
@@ -67,6 +72,21 @@ Claude.ai plan does not include it. mAIestro Code stores no API key of its own �
 sessions run under your `claude` login. See the
 [Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
 misbehaves, or run `claude doctor`.
+
+*Codex CLI* — install it, then log in:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+codex --version   # 0.133.0 or newer
+codex login
+```
+
+Codex sessions differ in a few ways. The Codex session doesn't take the
+worktree's name or color; the VS Code bars are still colored. The first time a
+Codex session starts, Codex asks you to review mAIestro Code's status hooks:
+choose **trust all**. That one approval covers every workspace from
+then on, including after mAIestro Code updates. Codex reports no failed-tool
+errors, so the pill never turns red for those.
 
 **3. Set up git and GitHub for your sessions.** Spawned sessions push branches
 and fetch under your *ambient* git auth, not through mAIestro Code. Make sure `git`
@@ -111,9 +131,9 @@ mAIestro Code is not yet available on other platforms, but it is designed to sup
    they break a spawn.
 5. Back in the popover, the repo lists its open issues. Hit **Spawn Work** on
    one — mAIestro Code creates the worktree, copies your env files, runs your
-   post-spawn commands, and opens the editor with Claude working the issue.
-   Or write your own idea and let Claude draft the issue first.
-6. When the work is ready, create the PR from the workspace row (Claude drafts
+   post-spawn commands, and opens the editor with the agent working the issue.
+   Or write your own idea and let the agent draft the issue first.
+6. When the work is ready, create the PR from the workspace row (the agent drafts
    the description), merge it once checks pass, and tear the workspace down.
 
 ### GitHub token
@@ -157,10 +177,12 @@ prerequisites in one pass and streams the results:
 - **Cloned repo exists** — `cloned_repo_dir` is a git repo whose `origin`
   really points at this `owner/name`.
 - **Git available** and **Session editor available** — the `git` and VS Code
-  `code` CLIs resolve (pin them under **Preferences → Tool paths** if not).
-- **Claude logged in**, with a **model available** sub-check — a real probe of
-  the repo's `prompt_model`, so a login problem and a bad model name are
-  reported separately.
+  `code` CLIs resolve (pin them under **General → Tool paths** if not).
+- **Claude logged in** (or **Codex logged in**, for a Codex repo), with a
+  **model available** sub-check — a real probe of the repo's drafting model, so
+  a login problem and a bad model name are reported separately. Only the repo's
+  own agent is checked, so a machine with just one agent installed gets a clean
+  report.
 - **GitHub token & permissions** — the token is valid, the repo is readable,
   and the token can push. This is derived from the scopes and permissions
   GitHub reports; mAIestro Code never creates a throwaway issue or PR to test.
@@ -184,7 +206,7 @@ An annotated tour of the popover (illustrative diagram, not a screenshot):
 2. **Repo group** — one section per tracked repo, with a button to open its
    checkout in VS Code.
 3. **Start Work** — opens the issue picker for this repo (next diagram).
-4. **Claude status pill** — the session's live state, fed by Claude Code hooks:
+4. **Agent status pill** — the Claude or OpenAI logo with the session's live state, fed by the agent's hooks:
    *Working* (rainbow ring), *Needs you* (amber — e.g. a permission prompt),
    *Ready*/*Idle* (muted). Click it to jump into the session's editor. A red
    tint means a tool call failed and Claude stopped without recovering; the
@@ -208,17 +230,17 @@ Clicking **Start Work** opens the issue picker:
   <img src="docs/images/start-work.svg" width="680" alt="Annotated diagram of the Start Work overlay: idea box, issue list with refresh, and the expanded spawn preview with session label, branch, and worktree path">
 </p>
 
-1. **Idea box** — describe what you want in plain words; Claude turns it into
+1. **Idea box** — describe what you want in plain words; the agent turns it into
    a titled GitHub issue.
 2. **Create Issue / Create Issue and Spawn** — file the drafted issue, or file
    it and immediately spawn a workspace for it.
 3. **Open issues** — the repo's open issues, refreshable; issues that already
    have a workspace sink to the bottom with their phase.
 4. **Spawn preview** — expanding an issue shows what will be created: an
-   editable short session label (drafted by Claude) plus the derived
+   editable short session label (drafted by the agent) plus the derived
    workspace, branch, and worktree path.
 5. **Spawn Work** — creates the worktree, copies env files, runs post-spawn
-   commands, and opens the editor with Claude briefed on the issue.
+   commands, and opens the editor with the agent briefed on the issue.
 
 ## Configuration
 
@@ -236,7 +258,7 @@ Per-repo settings cover the local clone path (`cloned_repo_dir`), where
 worktrees are created (`worktree_prefix`), `.env` files to copy into each new
 worktree (`env_files`), shell commands to run after a worktree is created
 (`post_spawn_commands`, e.g. `pnpm install`), and overrides for the prompts
-mAIestro Code sends Claude when drafting issues, labels, and PRs (`prompts`).
+mAIestro Code sends the repo's agent when drafting issues, labels, and PRs (`prompts`).
 
 The format is specified by a JSON Schema at
 [`backend/schemas/repo-settings.schema.json`](backend/schemas/repo-settings.schema.json)
@@ -264,15 +286,17 @@ agent that then works in it is steered by files the repository controls:
 - **VS Code opens with `--disable-workspace-trust`.** The repo's own `.vscode`
   configuration and any workspace-triggered extension behavior run without the
   "Do you trust the authors?" prompt.
-- **The Claude session is ordinary Claude Code**, launched interactively with
+- **The session is ordinary Claude Code (or Codex)**, launched interactively with
   its standard permission prompts; mAIestro Code passes no permission-bypass
   flags. The repo's committed `CLAUDE.md`, `.claude/` settings, and hooks apply
   to that session exactly as if you had run `claude` there yourself, so a
   malicious repository can influence the agent. That is Claude Code's own trust
-  model, not something mAIestro Code adds or removes.
+  model, not something mAIestro Code adds or removes. The same holds for a Codex
+  session and the repo's `AGENTS.md` and `.codex/` configuration.
 - **mAIestro Code's own drafting calls run with all tools disabled.** The
-  issue, label, and PR-description drafts run `claude -p … --tools ""` in the
-  repo, so prompt injection from your idea text, an issue body, a diff, or the
+  issue, label, and PR-description drafts run `claude -p … --tools ""` (or, for
+  Codex, `codex exec --sandbox read-only` with the shell and other tools
+  disabled) in the repo, so prompt injection from your idea text, an issue body, a diff, or the
   repo's `CLAUDE.md` can at worst produce a bad draft — never read files, run
   commands, or fetch URLs.
 
