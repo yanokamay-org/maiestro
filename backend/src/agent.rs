@@ -20,6 +20,9 @@ pub enum Agent {
 }
 
 impl Agent {
+    /// Every agent, for parsing and for tests that cover each one.
+    pub const ALL: [Agent; 3] = [Agent::Claude, Agent::Codex, Agent::Antigravity];
+
     /// The value as it appears in settings files and session records. Not
     /// necessarily the binary name — resolve the CLI with [`Agent::tool`].
     pub fn as_str(self) -> &'static str {
@@ -35,8 +38,9 @@ impl Agent {
     /// settings value.
     pub fn tool(self) -> &'static str {
         match self {
+            Agent::Claude => "claude",
+            Agent::Codex => "codex",
             Agent::Antigravity => "agy",
-            other => other.as_str(),
         }
     }
 
@@ -51,11 +55,16 @@ impl Agent {
 
     /// Parse a settings/schema value. `None` for anything unrecognized.
     pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "claude" => Some(Agent::Claude),
-            "codex" => Some(Agent::Codex),
-            "antigravity" => Some(Agent::Antigravity),
-            _ => None,
+        Agent::ALL.into_iter().find(|a| a.as_str() == s)
+    }
+
+    /// The arguments that make this agent's CLI list the models it can run, or
+    /// `None` when it has no such command (Claude Code) — see [`crate::models`].
+    pub fn model_list_args(self) -> Option<&'static [&'static str]> {
+        match self {
+            Agent::Claude => None,
+            Agent::Codex => Some(&["debug", "models"]),
+            Agent::Antigravity => Some(&["models"]),
         }
     }
 }
@@ -75,7 +84,7 @@ mod tests {
         assert_eq!(serde_json::to_value(Agent::Codex).unwrap(), serde_json::json!("codex"));
         assert_eq!(serde_json::from_value::<Agent>(serde_json::json!("claude")).unwrap(), Agent::Claude);
         assert_eq!(serde_json::to_value(Agent::Antigravity).unwrap(), serde_json::json!("antigravity"));
-        for a in [Agent::Claude, Agent::Codex, Agent::Antigravity] {
+        for a in Agent::ALL {
             assert_eq!(Agent::parse(a.as_str()), Some(a));
         }
         assert_eq!(Agent::parse("gemini"), None);

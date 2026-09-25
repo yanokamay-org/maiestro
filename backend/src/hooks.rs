@@ -59,18 +59,29 @@ fn claude_hook_file(work_dir: &Path) -> PathBuf {
 /// excluded from git. Returns a notice for the user when it changed something
 /// they should know about (today: the `.gitignore`).
 pub async fn write_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> Result<Option<String>, String> {
-    if agent == Agent::Codex {
-        ensure_hook_wrapper()?;
-        exclude_generated_files(work_dir).await;
-        return Ok(None);
-    }
-    let bin = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
-    if agent == Agent::Antigravity {
-        write_antigravity_hooks(work_dir, ws_id, &bin)?;
-        exclude_generated_files(work_dir).await;
-        return Ok(ensure_antigravity_gitignored(work_dir, true));
-    }
+    let notice = match agent {
+        Agent::Claude => {
+            let bin = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+            write_claude_hooks(work_dir, ws_id, &bin)?;
+            None
+        }
+        Agent::Codex => {
+            ensure_hook_wrapper()?;
+            None
+        }
+        Agent::Antigravity => {
+            let bin = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+            write_antigravity_hooks(work_dir, ws_id, &bin)?;
+            ensure_antigravity_gitignored(work_dir, true)
+        }
+    };
+    exclude_generated_files(work_dir).await;
+    Ok(notice)
+}
 
+/// The Claude half of [`write_session_hooks`]: merge our hooks (pointing at
+/// `bin`) into [`claude_hook_file`], keeping every other setting and hook.
+fn write_claude_hooks(work_dir: &Path, ws_id: &str, bin: &Path) -> Result<(), String> {
     let path = claude_hook_file(work_dir);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -83,13 +94,9 @@ pub async fn write_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> 
         .and_then(|s| serde_json::from_str(&s).ok())
         .filter(|v: &serde_json::Value| v.is_object())
         .unwrap_or_else(|| serde_json::json!({}));
-    let root = merge_hooks(root, &bin, ws_id);
+    let root = merge_hooks(root, bin, ws_id);
 
-    std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap() + "\n")
-        .map_err(|e| e.to_string())?;
-
-    exclude_generated_files(work_dir).await;
-    Ok(None)
+    std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap() + "\n").map_err(|e| e.to_string())
 }
 
 /// Build mAIestro Code's Claude status-hook entries (event name → hook group) for
@@ -198,33 +205,35 @@ fn merge_hooks(mut root: serde_json::Value, bin: &Path, ws_id: &str) -> serde_js
 ///
 /// Returns true when it rewrote something.
 pub fn reconcile_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> bool {
-    if agent == Agent::Codex {
-        return ensure_hook_wrapper().unwrap_or(false);
-    }
-    let Ok(bin) = std::env::current_exe() else {
-        return false;
-    };
-    if agent == Agent::Antigravity {
-        let rewrote = reconcile_antigravity_hooks_with(work_dir, ws_id, &bin);
-        // Put the ignore line back if someone removed it — but only for a
-        // worktree that has our hooks, and without re-warning about a tracked
-        // file on every launch.
-        let notice = antigravity_hook_file(work_dir)
-            .is_file()
-            .then(|| ensure_antigravity_gitignored(work_dir, false))
-            .flatten();
-        if let Some(notice) = &notice {
-            crate::sessions::set_notice(ws_id, notice.clone());
+    match agent {
+        Agent::Claude => std::env::current_exe().is_ok_and(|bin| reconcile_claude_hooks(work_dir, ws_id, &bin)),
+        Agent::Codex => ensure_hook_wrapper().unwrap_or(false),
+        Agent::Antigravity => {
+            std::env::current_exe().is_ok_and(|bin| reconcile_antigravity_hooks(work_dir, ws_id, &bin))
         }
-        return rewrote || notice.is_some();
     }
-    reconcile_hooks_with(work_dir, ws_id, &bin)
+}
+
+/// The Antigravity half of [`reconcile_session_hooks`]: re-point our group at
+/// `bin`, and put the `.gitignore` line back if someone removed it — but only
+/// for a worktree that has our hooks, and without re-warning about a tracked
+/// file on every launch.
+fn reconcile_antigravity_hooks(work_dir: &Path, ws_id: &str, bin: &Path) -> bool {
+    let rewrote = reconcile_antigravity_hooks_with(work_dir, ws_id, bin);
+    let notice = antigravity_hook_file(work_dir)
+        .is_file()
+        .then(|| ensure_antigravity_gitignored(work_dir, false))
+        .flatten();
+    if let Some(notice) = &notice {
+        crate::sessions::set_notice(ws_id, notice.clone());
+    }
+    rewrote || notice.is_some()
 }
 
 /// The Claude half of [`reconcile_session_hooks`] against an explicit `bin`, so
 /// tests can prove a stale path is rewritten without depending on the test
 /// binary's own path.
-fn reconcile_hooks_with(work_dir: &Path, ws_id: &str, bin: &Path) -> bool {
+fn reconcile_claude_hooks(work_dir: &Path, ws_id: &str, bin: &Path) -> bool {
     let path = claude_hook_file(work_dir);
     let Ok(existing) = std::fs::read_to_string(&path) else {
         return false;
@@ -851,10 +860,10 @@ mod tests {
         let root = merge_hooks(serde_json::json!({}), Path::new("/old/maiestro"), ws);
         std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap()).unwrap();
         let new_bin = Path::new("/Applications/mAIestro Code.app/Contents/MacOS/maiestro");
-        assert!(reconcile_hooks_with(dir.path(), ws, new_bin));
+        assert!(reconcile_claude_hooks(dir.path(), ws, new_bin));
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("/old/maiestro") && text.contains("mAIestro Code.app"), "{text}");
-        assert!(!reconcile_hooks_with(dir.path(), ws, new_bin), "no churn when current");
+        assert!(!reconcile_claude_hooks(dir.path(), ws, new_bin), "no churn when current");
     }
 
     /// Switching away from Claude (#186) strips only our hooks for this

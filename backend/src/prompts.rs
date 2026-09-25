@@ -45,12 +45,13 @@ pub fn draft_pr(p: &PromptOverrides) -> String {
 /// defers to the model configured in Codex itself. Governs only mAIestro Code's
 /// own drafting prompts, never the launched worktree session.
 pub fn model(models: &PromptModels, agent: Agent) -> Option<String> {
-    let (configured, ptr) = match agent {
-        Agent::Claude => (&models.claude, "/properties/prompt_models/properties/claude/default"),
-        Agent::Codex => (&models.codex, "/properties/prompt_models/properties/codex/default"),
-        Agent::Antigravity => (&models.antigravity, "/properties/prompt_models/properties/antigravity/default"),
+    let configured = match agent {
+        Agent::Claude => &models.claude,
+        Agent::Codex => &models.codex,
+        Agent::Antigravity => &models.antigravity,
     };
-    Some(pick(configured, ptr)).filter(|m| !m.is_empty())
+    let ptr = format!("/properties/prompt_models/properties/{}/default", agent.as_str());
+    Some(pick(configured, &ptr)).filter(|m| !m.is_empty())
 }
 
 #[cfg(test)]

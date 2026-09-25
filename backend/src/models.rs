@@ -50,11 +50,7 @@ fn cached(agent: Agent) -> Option<Vec<String>> {
 }
 
 async fn query(agent: Agent) -> Option<Vec<String>> {
-    let args: &[&str] = match agent {
-        Agent::Claude => return None,
-        Agent::Codex => &["debug", "models"],
-        Agent::Antigravity => &["models"],
-    };
+    let args = agent.model_list_args()?;
     crate::tools::find_tool(agent.tool())?;
     let mut cmd = crate::tools::tokio_command(agent.tool());
     cmd.args(args).stdin(std::process::Stdio::null()).kill_on_drop(true);
@@ -75,8 +71,10 @@ async fn query(agent: Agent) -> Option<Vec<String>> {
     };
     let stdout = String::from_utf8_lossy(&out.stdout);
     let ids = match agent {
+        // No listing command, so `model_list_args` already returned `None`.
+        Agent::Claude => return None,
         Agent::Codex => codex_model_slugs(&stdout),
-        _ => agy_model_ids(&stdout),
+        Agent::Antigravity => agy_model_ids(&stdout),
     };
     (!ids.is_empty()).then_some(ids)
 }
