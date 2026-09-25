@@ -218,21 +218,23 @@ export const AgentRenderer = withJsonFormsControlProps(AgentControl);
 
 // ── Prompt model combobox ────────────────────────────────────────────────────
 // Which model runs the headless drafting prompts. The value is stored per agent
-// (`prompt_models.claude` / `.codex`) and this field edits the entry for the
+// (`prompt_models.claude` / `.codex` / `.antigravity`) and this field edits the entry for the
 // repo's *effective* agent, so switching the Agent select swaps which entry
 // shows. Deliberately NOT a closed select: the value is passed verbatim to
-// `claude --model` / `codex exec --model`, which accept any alias or full model
-// id. A datalist offers each agent's known models as suggestions while still
+// `claude --model` / `codex exec --model` / `agy --model`, which accept any
+// alias or model id they know (`agy` has no aliases: ids carry an effort suffix). A datalist offers each agent's known models as suggestions while still
 // accepting a typed-in value, so a new model needs no mAIestro Code update. Empty
 // falls back to the entry's schema default, surfaced as the placeholder.
 
 /** Suggested model names per agent. Hints only — any value is accepted, so
  *  adding a newly released model here is optional and non-breaking. The Codex
  *  list is the user-selectable (`visibility: "list"`) slugs from Codex's own
- *  catalog (`codex debug models`); empty still uses Codex's configured default. */
+ *  catalog (`codex debug models`); empty still uses Codex's configured default.
+ *  The Antigravity list is from `agy models`. */
 const PROMPT_MODEL_SUGGESTIONS: Record<Agent, string[]> = {
   claude: ["haiku", "sonnet", "opus", "fable"],
   codex: ["gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
+  antigravity: ["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high", "gemini-3.1-pro-low"],
 };
 
 /** Placeholder for an empty drafting-model field on `agent`. */
@@ -626,6 +628,7 @@ export function extractFormDefaults(
     promptModelDefaults: {
       claude: str(modelProps.claude?.default),
       codex: str(modelProps.codex?.default),
+      antigravity: str(modelProps.antigravity?.default),
     },
     booleanDefaults,
     promptDefaults: {

@@ -50,6 +50,11 @@ pub struct Session {
     /// resolved on the frontend at render time.
     #[serde(default)]
     pub hidden: Option<HideState>,
+    /// Something mAIestro Code changed in the worktree that the user should know
+    /// about — e.g. appending `.agents/hooks.json` to its `.gitignore` (#185).
+    /// Shown on the work item until dismissed (`session_dismiss_notice`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 impl Session {
@@ -112,6 +117,27 @@ pub fn used_colors() -> Vec<String> {
 pub fn sessions_list() -> Vec<Session> {
     crate::log_invoke_debug!("sessions_list");
     load_all()
+}
+
+/// Record `notice` on a session so the popover shows it (replacing any earlier
+/// one). Best-effort: a missing record or failed write is only logged.
+pub fn set_notice(session_id: &str, notice: String) {
+    let Some(mut session) = get(session_id) else { return };
+    session.notice = Some(notice);
+    if let Err(e) = save(&session) {
+        tracing::warn!(session = %session_id, error = %e, "couldn't record the session notice");
+    }
+}
+
+/// Clear a work item's notice once the user dismisses it. No-op if none.
+#[tauri::command]
+pub fn session_dismiss_notice(session_id: String) -> Result<(), String> {
+    crate::log_invoke!("session_dismiss_notice", session_id = %session_id);
+    let mut session = get(&session_id).ok_or_else(|| format!("session not found: {session_id}"))?;
+    if session.notice.take().is_none() {
+        return Ok(());
+    }
+    save(&session).map_err(|e| e.to_string())
 }
 
 /// Set (or clear) a work item's hide/snooze state. `hidden = None` unhides.

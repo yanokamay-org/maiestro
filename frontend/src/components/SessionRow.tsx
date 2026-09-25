@@ -65,6 +65,7 @@ export interface SessionRowProps {
   onDismissPrMergeError: () => void;
   onDismissToolError: () => void;
   onDismissOpenError: () => void;
+  onDismissNotice: () => void;
 }
 
 export function SessionRow({
@@ -72,7 +73,7 @@ export function SessionRow({
   cmdOpen, repoHidden, now, openErr, busyCls, busyRingCls,
   onToggleCommands, onOpenInEditor, onOpenPath, onOpenUrl, onOpenAccessibilitySettings,
   onCreatePr, onStartMerge, onTearDown, onChooseAgent, onFocusEditor, onRestartEditor, onDismissAgentPrompt, onRunTeardown, onHide, onUnhide,
-  onCancelTeardownConfirm, onDismissPrCreateError, onDismissPrMergeError, onDismissToolError, onDismissOpenError,
+  onCancelTeardownConfirm, onDismissPrCreateError, onDismissPrMergeError, onDismissToolError, onDismissOpenError, onDismissNotice,
 }: SessionRowProps) {
   // While the worktree is still being built in the background (issue #77),
   // actions that need it to exist are disabled.
@@ -230,6 +231,9 @@ export function SessionRow({
       )}
       {openErr && (
         <DismissibleError lead="Couldn't open" message={openErr} onDismiss={onDismissOpenError} />
+      )}
+      {s.notice && (
+        <DismissibleError variant="list" lead="mAIestro Code changed this worktree" message={s.notice} onDismiss={onDismissNotice} />
       )}
       {prompt?.kind === "error" && (
         <DismissibleError lead="Couldn't switch the agent" message={prompt.message} onDismiss={onDismissAgentPrompt} />

@@ -5,9 +5,9 @@
 // machine-managed) and two custom renderers the schema alone can't express:
 //   - Theme: the segmented light/dark/system control (a plain enum would render
 //     as a dropdown).
-//   - Default Agent: a Claude Code / Codex CLI dropdown, the default for repos
+//   - Default Agent: a Claude Code / Codex CLI / Antigravity CLI dropdown, the default for repos
 //     that don't pick their own.
-//   - Tool paths: one input per CLI (claude/codex/git/code, from the schema) with
+//   - Tool paths: one input per CLI (claude/codex/agy/git/code, from the schema) with
 //     a live resolved-path status line.
 //   - Terminal font: a text input whose placeholder is the schema default, so an
 //     empty field visibly means "use the default" (a plain string control would
@@ -117,7 +117,7 @@ export const themeTester = rankWith(20, scopeEndsWith("theme"));
 export const ThemeRenderer = withJsonFormsControlProps(ThemeControl);
 
 // ── Default agent (dropdown) ─────────────────────────────────────────────────
-// Stored value is "claude" | "codex" | null; null shows as the schema default.
+// Stored value is "claude" | "codex" | "antigravity" | null; null shows as the schema default.
 // Same select as the per-repo Agent field, minus its "Use global default"
 // option — this *is* the global default. Picking the default explicitly is
 // stored as-is; it only matters if the schema default moves.

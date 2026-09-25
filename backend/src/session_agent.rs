@@ -1,4 +1,4 @@
-//! Switching an existing session's agent (Claude ⇄ Codex) without re-spawning
+//! Switching an existing session's agent (Claude, Codex, Antigravity) without re-spawning
 //! its worktree (issue #186), and the VS Code restart that applies it.
 //!
 //! The agent session only changes when VS Code opens the folder fresh — the
@@ -57,7 +57,7 @@ fn switched(mut s: Session, agent: Agent, window_open: bool) -> Session {
 }
 
 /// Switch a session to `agent`: install the new agent's status hooks (and drop
-/// our Claude hooks when leaving Claude), record the switch, and regenerate the
+/// our Claude or Antigravity hooks when leaving that agent), record the switch, and regenerate the
 /// `.vscode` files from the record so the folder-open task launches the new
 /// agent. Never re-themes the worktree. A no-op for the agent it already runs.
 #[tauri::command]
@@ -70,11 +70,21 @@ pub async fn session_set_agent(session_id: String, agent: Agent) -> Result<SetAg
         let from = session.agent;
         let window_open = editor_window_open(&work_dir).await;
 
-        crate::hooks::write_session_hooks(&work_dir, &session_id, agent).await?;
-        if from == Agent::Claude {
-            crate::hooks::remove_claude_hooks(&work_dir, &session_id);
+        let notice = crate::hooks::write_session_hooks(&work_dir, &session_id, agent).await?;
+        match from {
+            Agent::Claude => {
+                crate::hooks::remove_claude_hooks(&work_dir, &session_id);
+            }
+            Agent::Antigravity => {
+                crate::hooks::remove_antigravity_hooks(&work_dir);
+            }
+            // Codex's hooks ride on its launch command; nothing is in the worktree.
+            Agent::Codex => {}
         }
-        let session = switched(session, agent, window_open);
+        let mut session = switched(session, agent, window_open);
+        if notice.is_some() {
+            session.notice = notice;
+        }
         crate::sessions::save(&session).map_err(|e| e.to_string())?;
         crate::spawn::refresh_vscode_files(&work_dir, &session_id);
         tracing::info!(from = %from, to = %agent, window_open, restart_pending = session.restart_pending(), "switched session agent");
@@ -217,5 +227,19 @@ mod tests {
         session_set_agent(s.id.clone(), Agent::Codex).await.unwrap();
         assert!(!wt.path().join(".claude/settings.local.json").exists());
         assert_eq!(read("tasks.json")["tasks"][0]["label"], "Start Codex");
+
+        // To Antigravity (#185): its hooks land in `.agents/hooks.json`, and
+        // leaving it again removes them.
+        session_set_agent(s.id.clone(), Agent::Antigravity).await.unwrap();
+        let agy_hooks = std::fs::read_to_string(wt.path().join(".agents/hooks.json")).unwrap();
+        assert!(agy_hooks.contains("maiestro-status") && agy_hooks.contains("--workspace '186-x'"), "{agy_hooks}");
+        assert_eq!(read("tasks.json")["tasks"][0]["label"], "Start Antigravity");
+        let gi = std::fs::read_to_string(wt.path().join(".gitignore")).unwrap();
+        assert!(gi.contains(".agents/hooks.json"), "{gi}");
+        let notice = crate::sessions::get(&s.id).unwrap().notice.expect("gitignore notice recorded");
+        assert!(notice.contains(".gitignore"), "{notice}");
+        session_set_agent(s.id.clone(), Agent::Claude).await.unwrap();
+        assert!(!wt.path().join(".agents/hooks.json").exists());
+        assert_eq!(read("tasks.json")["tasks"][0]["label"], "Start Claude");
     }
 }

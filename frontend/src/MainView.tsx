@@ -191,7 +191,14 @@ export function MainView() {
 
   // Live status updates from the backend's status-file watcher. Each event is one
   // workspace's latest record; `ended` clears its row indicator.
+  // Latest statuses for the listener below, which must compare against the
+  // previous state without closing over a stale map.
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
   useTauriListen<StatusRecord>("session-status", (rec) => {
+    // A background spawn just finished building the worktree: re-read the
+    // session record, which may now carry a notice (e.g. a .gitignore change).
+    if (statusesRef.current[rec.workspace]?.state === "creating" && rec.state !== "creating") refreshSessions();
     setStatuses((prev) => {
       if (rec.state === "ended") {
         const { [rec.workspace]: _drop, ...rest } = prev;
@@ -864,6 +871,7 @@ export function MainView() {
                             onDismissPrMergeError={() => setPrMerge((prev) => ({ ...prev, [s.id]: {} }))}
                             onDismissToolError={() => api.clearSessionError(s.id)}
                             onDismissOpenError={() => clearSessionOpenErr(s.id)}
+                            onDismissNotice={() => { api.dismissSessionNotice(s.id).then(refreshSessions).catch(() => {}); }}
                           />
                         ))}
                       </div>

@@ -35,6 +35,18 @@ describe("AgentPill (#162)", () => {
     expect(markPath()).toMatch(/^M22\.2819/);
   });
 
+  it("shows the Antigravity mark and names Antigravity for an Antigravity session (#185)", () => {
+    render(
+      <AgentPill
+        agent="antigravity"
+        status={status({ state: "needs_you", detail: "Red or blue?" })}
+        onClick={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button")).toHaveAttribute("title", "Antigravity · Needs you — Red or blue?");
+    expect(markPath()).toMatch(/^M1\.9 20\.3/);
+  });
+
   it("shows Idle before a status exists, once the session ended, and while creating", () => {
     const { rerender } = render(<AgentPill agent="codex" onClick={() => {}} />);
     expect(screen.getByRole("button")).toHaveAttribute("title", "Codex · Idle");

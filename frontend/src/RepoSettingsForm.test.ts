@@ -20,6 +20,7 @@ const SCHEMA = {
       properties: {
         claude: { type: ["string", "null"], default: "haiku" },
         codex: { type: ["string", "null"], default: null },
+        antigravity: { type: ["string", "null"], default: "gemini-3.8-flash-low" },
       },
     },
     cloned_repo_dir: { type: ["string", "null"] },
@@ -40,8 +41,9 @@ describe("extractFormDefaults", () => {
   it("reads the top-level and nested prompt defaults from the schema", () => {
     const d = extractFormDefaults(SCHEMA);
     expect(d.worktreePrefixDefault).toBe("~/src/work-");
-    // Per agent: Claude's alias default, and no default at all for Codex.
-    expect(d.promptModelDefaults).toEqual({ claude: "haiku", codex: "" });
+    // Per agent: Claude's alias default, no default at all for Codex, and a
+    // Gemini Flash id for Antigravity.
+    expect(d.promptModelDefaults).toEqual({ claude: "haiku", codex: "", antigravity: "gemini-3.8-flash-low" });
     expect(d.promptDefaults).toEqual({
       draft_issue: "Draft an issue.",
       short_label: "Short label.",
@@ -63,7 +65,7 @@ describe("extractFormDefaults", () => {
   it("falls back to empty strings when defaults are missing", () => {
     const d = extractFormDefaults({ properties: {} });
     expect(d.worktreePrefixDefault).toBe("");
-    expect(d.promptModelDefaults).toEqual({ claude: "", codex: "" });
+    expect(d.promptModelDefaults).toEqual({ claude: "", codex: "", antigravity: "" });
     expect(d.booleanDefaults).toEqual({});
     expect(d.promptDefaults).toEqual({ draft_issue: "", short_label: "", draft_pr: "" });
   });

@@ -1,5 +1,5 @@
 //! Resolving the external CLIs mAIestro Code invokes **directly** — the agent CLIs
-//! `claude` and `codex`, `git`, and the VS Code `code` CLI — robustly, even when the app is launched from the
+//! `claude`, `codex` and `agy` (Antigravity), `git`, and the VS Code `code` CLI — robustly, even when the app is launched from the
 //! packaged bundle (`/Applications/mAIestro Code.app/…`).
 //!
 //! The problem: at login, macOS Launch Services starts the app with a **minimal
@@ -168,6 +168,14 @@ fn fallbacks(name: &str) -> Vec<PathBuf> {
             // Codex's standalone installer links its binary here.
             home().join(".local/bin/codex"),
         ],
+        "agy" => vec![
+            // Antigravity's install script (`antigravity.google/cli/install.sh`)
+            // puts the binary here.
+            home().join(".local/bin/agy"),
+            // The `antigravity-cli` Homebrew cask.
+            PathBuf::from("/opt/homebrew/bin/agy"),
+            PathBuf::from("/usr/local/bin/agy"),
+        ],
         "code" => vec![
             PathBuf::from("/opt/homebrew/bin/code"),
             PathBuf::from("/usr/local/bin/code"),
@@ -286,9 +294,9 @@ pub fn shell_quote(s: &str) -> String {
 }
 
 /// The directly-invoked tools whose resolution the Settings UI surfaces.
-/// Both agents are listed so either can be pinned; nothing *resolves* an agent's
+/// Every agent is listed so any can be pinned; nothing *resolves* an agent's
 /// binary for real work unless a repo actually uses that agent.
-const TOOLS: &[&str] = &["claude", "codex", "git", "code"];
+const TOOLS: &[&str] = &["claude", "codex", "agy", "git", "code"];
 
 /// One tool's resolution result, for the Settings "Tool paths" status line.
 #[derive(serde::Serialize)]
@@ -379,8 +387,17 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_includes_both_agents() {
-        assert!(TOOLS.contains(&"claude") && TOOLS.contains(&"codex"));
+    fn agy_fallbacks_probe_the_install_script_and_homebrew() {
+        let f = fallbacks("agy");
+        assert!(f.contains(&home().join(".local/bin/agy")));
+        assert!(f.contains(&PathBuf::from("/opt/homebrew/bin/agy")));
+    }
+
+    #[test]
+    fn tools_list_includes_every_agent() {
+        for agent in [crate::agent::Agent::Claude, crate::agent::Agent::Codex, crate::agent::Agent::Antigravity] {
+            assert!(TOOLS.contains(&agent.tool()), "{agent}");
+        }
     }
 
     #[test]

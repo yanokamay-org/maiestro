@@ -44,3 +44,37 @@ A repo whose agent is Codex (issue #162) gets the same status helper and verbs, 
 - **No `last_error` for Codex.** Codex has no `PostToolUseFailure` event, so a Codex session never gets a failed-tool error or a red pill. This is documented, not emulated (no parsing of `PostToolUse` responses).
 - **`PermissionRequest` stands in for `Notification`.** Codex has no `Notification` event. Its `PermissionRequest` payload carries `tool_name`/`tool_input` but no `message`, so `resolve_state` falls back to a detail of ``Permission requested: `<tool_name>` `` for the pill's tooltip.
 - **Drafting doesn't report status.** mAIestro Code's own `codex exec` drafting calls run with `--disable hooks`, so a PR draft run inside a Codex worktree doesn't flip the session's pill.
+
+## Antigravity sessions
+
+A repo whose agent is Antigravity (`agy`, issue #185) uses the same status helper and records, fed by Antigravity's own hook system. Its events are coarser than Claude's, and a few of its behaviours shape what we install.
+
+**Where the hooks live.** Antigravity reads workspace hooks from `<worktree>/.agents/hooks.json`, a JSON object of *named* hook groups. At spawn, `hooks::write_session_hooks` sets one group, `maiestro-status` (`hooks::antigravity_hook_group`), and keeps every other group. So a repo that commits its own `.agents/hooks.json` keeps its hooks. A file that exists but isn't a JSON object is left alone, and that session simply shows no status. Like Claude's, each command bakes in the running binary and `--workspace <id>`, and startup and every reopen rewrite the group to the current binary (`reconcile_antigravity_hooks_with`), but only when the group is already there. We never write `~/.gemini/` (neither the global `config/hooks.json` nor Antigravity's settings).
+
+**Kept out of git by `.gitignore`.** The file holds this machine's binary path and workspace id, so it must never be committed. Unlike Claude's `.claude/settings.local.json` (in the local `info/exclude`), `.agents/hooks.json` is ignored through the worktree's tracked **`.gitignore`**, so the rule also reaches collaborators and fresh clones. `hooks::ensure_antigravity_gitignored` runs `git check-ignore -v --no-index`, and only a match from a `.gitignore` counts: `info/exclude`, the global excludes file, or a `!` negation don't. If nothing covers the file, it appends a commented `.agents/hooks.json` line to the worktree-root `.gitignore`, creating the file if needed. Then it records a **notice** on the session record (`Session.notice`), which the popover shows on the work item as a dismissible block (`session_dismiss_notice`) telling the user to commit the change. It runs on spawn and on switching to Antigravity, and in every reconcile (startup and reopen) for a worktree that has our hooks, so a deleted line is put back and the notice shown again. A `.gitignore` can't hide a file the repo already **tracks**. In that case nothing is appended, and on spawn and switch (not every reconcile) the notice instead warns that our group shows up as a change to keep out of commits. The spawn runs in the background, so the popover re-reads the session list when a worktree leaves `creating`, which is when the notice becomes visible.
+
+**Folder trust.** An interactive `agy` loads workspace hooks only in a trusted folder, and trust is recorded per exact path (`~/.gemini/antigravity-cli/settings.json` → `trustedWorkspaces`). A trusted parent such as `~/src` doesn't cover a worktree inside it. So every new worktree gets Antigravity's own "Do you trust the contents of this project?" prompt when the session starts. Antigravity asks that for any new folder whether or not we add hooks, so mAIestro Code shows no dialog of its own. Once the user answers yes, the hooks load.
+
+**A `PreToolUse` hook's output is a decision.** Unlike Claude, Antigravity reads a `PreToolUse` hook's stdout as a permission decision:
+- `{}` or `{"decision":""}` **denies** the tool
+- a non-zero exit **blocks** it with a hook-failed error
+- only **empty stdout with exit 0** leaves the tool to its normal permission flow (`"ask"` would force a prompt, and `"allow"` would auto-approve)
+
+So every command we install ends in `>/dev/null 2>&1 || true` (`hooks::antigravity_hook_command`). It is silent and succeeds even if the baked binary has been deleted, and a unit test runs each command against a missing binary to prove it. `PreToolUse` is also registered **only** for the tools that ask the user something, which keeps any hook problem away from ordinary tools. `Stop` reads `"decision":"continue"` as "keep going" and anything else as "stop", so silence is neutral there too.
+
+| Antigravity event | verb | state |
+|---|---|---|
+| `PreInvocation` (before every model call) | `invocation` | `prompt` for the first call of a turn (`invocationNum` 0: a new turn clears a stale error), else `busy` |
+| `PreToolUse`, matcher `ask_question\|ask_permission\|ask_custom_permission` | `notification` | `needs_you`; the detail is the question text, or ``Permission requested: `<tool>` `` |
+| `PostToolUse`, matcher `*` | `tool_done` | `tool_failed` when the payload's `error` is non-empty, else `tool_ok` |
+| `Stop` | `stop` | `idle`; a non-empty `error` becomes a surfaced `last_error` |
+
+The payload-dependent verbs are resolved in `status::normalize_verb`. The payload is camelCase: the tool is `toolCall.name` (not `tool_name`), the session id is `conversationId`, and `workspacePaths[0]` stands in for `cwd`.
+
+Known gaps, documented and not emulated:
+- **No session start or end.** A session shows no pill until its first prompt, and "ended" is never reported (teardown still clears the row).
+- **Native permission prompts fire no hook.** `PreToolUse(run_command)` fires *before* the "Run this command?" prompt, with nothing to say a prompt is coming. "Needs you" appears only for the explicit asking tools.
+- **Esc, or declining a permission prompt, fires nothing.** No `Stop` follows, so the pill stays *Working* until the next turn.
+- **`last_error` is rare.** `PostToolUse` reports `"error": ""` even for a shell command that exited non-zero (the tool itself ran), and a tool that errors outright (e.g. `view_file` on a missing file) fires no `PostToolUse` at all.
+- **No session name or color.** `agy` has neither a session-name flag nor `/color` (see `docs/theming.md`).
+- **Drafting doesn't report status.** mAIestro Code's headless `agy` drafting runs in its own folder, `~/.maiestro/antigravity-draft/`, never a worktree, so it loads none of a worktree's hooks.

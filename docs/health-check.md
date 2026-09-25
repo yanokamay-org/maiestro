@@ -17,4 +17,10 @@ The eight checks: **cloned repo** (`cloned_repo_dir` exists, `git rev-parse --gi
 
 The check uses the repo's assigned `identity_id` to pick the token (`GitHub::for_identity`); a repo with no identity assigned makes the GitHub check `skipped`. Out of scope for now: no live write probe, no `gh` CLI check, no auto-fix, and no background/periodic polling (runs only on button click).
 
-**Checks are chosen per agent (issue #162).** Only the repo's effective agent is checked: a Codex repo doesn't run the Claude probe, doesn't list `claude` in the tool checks, and doesn't version-check it (`tool_applies` filters `MIN_TOOL_VERSIONS`), and a Claude repo doesn't mention `codex`. `git` and `code` are always checked. A machine with only one agent installed therefore gets a clean report for repos on that agent.
+**Checks are chosen per agent (issue #162).** Only the repo's effective agent is checked: a Codex repo doesn't run the Claude probe, doesn't list `claude` in the tool checks, and doesn't version-check it (`tool_applies` filters `MIN_TOOL_VERSIONS`), and a Claude repo doesn't mention `codex` or `agy`. `git` and `code` are always checked.
+
+**Antigravity (issue #185)** has no login-status command. The "Antigravity logged in" row runs `agy models` instead (`check_antigravity`, classified by the pure `antigravity_checks`). It starts no model turn and spends no quota:
+- **Logged out:** `agy models` exits 1 at once with "Please sign in…". That is a login Fail whose fix is running `agy` to sign in.
+- **Logged in:** it lists `id\tName` per model. The login Passes, and the **model available** sub-row checks the drafting model (`prompt_models.antigravity`) against that list. `agy` has no aliases, so an id without its effort suffix (e.g. `gemini-3.8-flash` for `gemini-3.8-flash-low`) fails with the available ids.
+
+The version floor is `agy` **1.2.10**, which fixed the headless exit codes and JSON error output that drafting relies on. The upgrade command is `agy update`. A machine with only one agent installed therefore gets a clean report for repos on that agent.
