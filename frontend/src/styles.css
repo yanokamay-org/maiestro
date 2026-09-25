@@ -2233,6 +2233,62 @@ body {
   gap: 8px;
 }
 
+/* AI Agent picker (AgentSwitchDialog): the hide-choice rows with the agent mark;
+   the current agent is shown but not selectable. */
+.agent-choice-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-choice-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* The rows lay out text left, badge right (hide-choice is a column). */
+.agent-choice {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The current agent: tinted fill, a solid accent border, and a badge, so it
+   reads as selected at a glance rather than as a disabled row. */
+.agent-choice--current,
+.agent-choice--current:hover {
+  cursor: default;
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  opacity: 1;
+  color: var(--text);
+}
+
+.agent-choice--current .agent-choice-mark {
+  color: var(--accent);
+}
+
+.agent-choice-badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ── Logs window ─────────────────────────────────────────────────────── */
 
 .logs-toolbar {

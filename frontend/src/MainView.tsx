@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, AvailableUpdate, SettingsProblem, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
+import { api, Agent, AvailableUpdate, SettingsProblem, DraftPreviewOutcome, HideState, IssueNode, PrChecks, PrLink, RepoSettings, Session, SpawnEdits, SpawnPlan, StatusRecord, WorkState } from "./api";
 import {
   ActiveSessions,
   furtherPhase,
@@ -20,8 +20,9 @@ import { SettingsProblemBanner } from "./components/SettingsProblemBanner";
 import { HideCommandButton, SnoozeLabel } from "./components/HideControls";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { HideSnoozeDialog } from "./components/HideSnoozeDialog";
+import { AgentSwitchDialog } from "./components/AgentSwitchDialog";
 import { CodexHooksDialog } from "./components/CodexHooksDialog";
-import { SessionRow, TeardownPrompt, PrCreateState, PrMergeState } from "./components/SessionRow";
+import { AgentPrompt, SessionRow, TeardownPrompt, PrCreateState, PrMergeState } from "./components/SessionRow";
 import { PickerOverlay, Picker, Preview, Expand } from "./components/PickerOverlay";
 import LogoIcon from "./icons/logo.svg?react";
 import GearIcon from "./icons/gear.svg?react";
@@ -93,6 +94,12 @@ export function MainView() {
   const [openRepoErr, setOpenRepoErr] = useState<Record<string, string>>({});
   // Per-session "Open in VS Code / Finder" launch error, keyed by session id.
   const [openSessionErr, setOpenSessionErr] = useState<Record<string, string>>({});
+  // The row's agent-switch prompt (restart / blocked / error), and the session
+  // ids whose switch or restart is in flight (issue #186).
+  const [agentPrompt, setAgentPrompt] = useState<AgentPrompt | null>(null);
+  const [agentBusy, setAgentBusy] = useState<Record<string, boolean>>({});
+  // The session whose "AI Agent…" picker is open.
+  const [agentTarget, setAgentTarget] = useState<Session | null>(null);
   // Target of the hide/snooze dialog, or null when closed.
   const [hideTarget, setHideTarget] = useState<HideTarget | null>(null);
   // A spawn or reopen waiting on the one-time Codex hook-trust notice.
@@ -610,10 +617,72 @@ export function MainView() {
   // launcher CLI can be missing — the health check tests for exactly this).
   const clearSessionOpenErr = (id: string) =>
     setOpenSessionErr((m) => { const { [id]: _drop, ...rest } = m; return rest; });
-  function openSessionInEditor(id: string, repo: string, dir: string) {
+  function openSessionInEditor(id: string, repo: string) {
     clearSessionOpenErr(id); // clear a stale error before retrying, like the repo-level button
     withCodexHooksNotice(repo, id, () => {
-      api.openInEditor(dir).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+      api.openInEditor(id)
+        .then((res) => {
+          // A pending agent switch: the open window still runs the old agent.
+          if (res.status === "restart_required") {
+            setAgentPrompt({ id, kind: "restart", reason: "open", agent: res.agent, editorAgent: res.editor_agent });
+          }
+        })
+        .catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+    });
+  }
+
+  // Bring the session's window to the front as-is, skipping the pending-switch
+  // check — from the "couldn't restart" prompt, so the user can close it.
+  // The "couldn't restart" prompt is dismissed: the user is handling the window.
+  function focusSessionEditor(id: string) {
+    clearSessionOpenErr(id);
+    setAgentPrompt((p) => (p?.id === id ? null : p));
+    api.openInEditor(id, true).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+  }
+
+  const setAgentBusyFor = (id: string, busy: boolean) =>
+    setAgentBusy((prev) => {
+      const { [id]: _drop, ...rest } = prev;
+      return busy ? { ...rest, [id]: true } : rest;
+    });
+
+  // Switch a session's agent (issue #186). The backend rewrites the worktree's
+  // launch files and hooks; if its VS Code window is still open (running the old
+  // agent), offer to restart it.
+  async function switchAgent(s: Session, agent: Agent) {
+    setAgentPrompt(null);
+    setAgentBusyFor(s.id, true);
+    try {
+      const res = await api.setSessionAgent(s.id, agent);
+      if (res.restart_needed && res.editor_agent) {
+        setAgentPrompt({ id: s.id, kind: "restart", reason: "switched", agent, editorAgent: res.editor_agent });
+      }
+    } catch (e) {
+      setAgentPrompt({ id: s.id, kind: "error", message: String(e) });
+    } finally {
+      setAgentBusyFor(s.id, false);
+      refreshSessions();
+    }
+  }
+
+  // Close and reopen the session's window so it launches the recorded agent. A
+  // Codex restart first explains the one-time hook trust, like any Codex open.
+  function restartEditor(s: Session) {
+    withCodexHooksNotice(s.repo, s.id, async () => {
+      setAgentBusyFor(s.id, true);
+      try {
+        const res = await api.restartSessionEditor(s.id);
+        setAgentPrompt(
+          res.status === "blocked_by_editor"
+            ? { id: s.id, kind: "blocked", message: res.message, accessibility: res.accessibility }
+            : null,
+        );
+      } catch (e) {
+        setAgentPrompt({ id: s.id, kind: "error", message: String(e) });
+      } finally {
+        setAgentBusyFor(s.id, false);
+        refreshSessions();
+      }
     });
   }
   function revealSessionPath(id: string, dir: string) {
@@ -767,6 +836,8 @@ export function MainView() {
                             prMerge={prMerge[s.id]}
                             teardownBusy={!!teardownBusy[s.id]}
                             teardownConfirm={teardownConfirm}
+                            agentPrompt={agentPrompt}
+                            agentBusy={!!agentBusy[s.id]}
                             cmdOpen={commandsOpen === s.id}
                             repoHidden={repoHidden}
                             now={now}
@@ -774,13 +845,17 @@ export function MainView() {
                             busyCls={busyCls}
                             busyRingCls={busyRingCls}
                             onToggleCommands={() => setCommandsOpen((id) => (id === s.id ? null : s.id))}
-                            onOpenInEditor={() => openSessionInEditor(s.id, s.repo, s.work_dir)}
+                            onOpenInEditor={() => openSessionInEditor(s.id, s.repo)}
                             onOpenPath={() => revealSessionPath(s.id, s.work_dir)}
                             onOpenUrl={(url) => api.openUrl(url)}
                             onOpenAccessibilitySettings={() => api.openAccessibilitySettings()}
                             onCreatePr={() => { setCommandsOpen(null); createPr(s); }}
                             onStartMerge={() => { setCommandsOpen(null); startMerge(s); }}
                             onTearDown={() => { setCommandsOpen(null); tearDown(s); }}
+                            onChooseAgent={() => { setCommandsOpen(null); setAgentTarget(s); }}
+                            onFocusEditor={() => focusSessionEditor(s.id)}
+                            onRestartEditor={() => restartEditor(s)}
+                            onDismissAgentPrompt={() => setAgentPrompt(null)}
                             onRunTeardown={(confirmed, force) => runTeardown(s.id, confirmed, force)}
                             onHide={() => { setCommandsOpen(null); setHideTarget({ kind: "session", session: s }); }}
                             onUnhide={() => applyVisibility({ kind: "session", session: s }, null)}
@@ -850,6 +925,14 @@ export function MainView() {
         />
       )}
 
+      {agentTarget && (
+        <AgentSwitchDialog
+          title={agentTarget.session_title}
+          current={agentTarget.agent ?? "claude"}
+          onConfirm={(agent) => { const s = agentTarget; setAgentTarget(null); switchAgent(s, agent); }}
+          onClose={() => setAgentTarget(null)}
+        />
+      )}
       {hideTarget && (
         <HideSnoozeDialog
           title={hideTarget.kind === "repo" ? hideTarget.repo : hideTarget.session.session_title}
