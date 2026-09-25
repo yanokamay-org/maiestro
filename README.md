@@ -43,18 +43,29 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 
 ### MacOS
 
+You need macOS, `git`, a GitHub account, and **one** agentic coding CLI —
+Claude Code (the default), Codex CLI, or Antigravity CLI — installed and
+logged in.
+
 **1. Install mAIestro Code.** Download the latest `.dmg` from the
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro Code** to Applications.
 
-**2. Install an agentic coding CLI: Claude Code, Codex CLI, or Antigravity CLI.**
-mAIestro Code launches your agentic coding CLI into every workspace it creates
-and uses it to draft issues, labels, and PRs, so it has to be installed and
-logged in first. You need **one** of them, not all. Claude Code is the default.
-To use another agentic coding CLI, pick it under **General → Default Agentic
-Coding CLI**, or per repo in that repo's settings.
+**2. Install an agentic coding CLI and log in.** mAIestro Code launches it into
+every workspace and uses it to draft issues, labels, and PRs. For Claude Code:
 
-*Claude Code* — either installer works:
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+claude             # log in on first run
+```
+
+To use Codex or Antigravity instead, install it (below), then pick it under
+**General → Default Agentic Coding CLI**, or per repo in that repo's settings.
+
+<details>
+<summary>More on Claude Code: Homebrew install, account requirements, troubleshooting</summary>
+
+Either installer works:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash   # native installer
@@ -74,7 +85,12 @@ sessions run under your `claude` login. See the
 [Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
 misbehaves, or run `claude doctor`.
 
-*Codex CLI* — install it, then log in:
+</details>
+
+<details>
+<summary>Using Codex CLI</summary>
+
+Install it, then log in:
 
 ```bash
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
@@ -89,7 +105,12 @@ choose **trust all**. That one approval covers every workspace from
 then on, including after mAIestro Code updates. Codex reports no failed-tool
 errors, so the pill never turns red for those.
 
-*Antigravity CLI* (`agy`, Google's terminal agent): install it, then run it
+</details>
+
+<details>
+<summary>Using Antigravity CLI</summary>
+
+Antigravity CLI (`agy`) is Google's terminal agent. Install it, then run it
 once to sign in with your Google account:
 
 ```bash
@@ -113,24 +134,32 @@ Antigravity sessions differ in a few ways:
   ignore it, mAIestro Code appends the line and tells you on the work item.
   Commit that `.gitignore` change along with your work.
 
-**3. Set up git and GitHub for your sessions.** Spawned sessions push branches
-and fetch under your *ambient* git auth, not through mAIestro Code. Make sure `git`
-is there (`git --version` prompts to install the Xcode Command Line Tools if it
-isn't), then authenticate — the GitHub CLI is the easiest way, since
-`gh auth login` also sets up git's credential helper:
+</details>
+
+**3. Authenticate git for your sessions.** Spawned sessions push and fetch
+under your own git auth. The GitHub CLI is the easiest way to set it up:
 
 ```bash
 brew install gh
 gh auth login      # choose HTTPS and "authenticate Git with your credentials"
 ```
 
+<details>
+<summary>Why this is needed, and how it relates to mAIestro Code's own GitHub access</summary>
+
+Spawned sessions push branches and fetch under your *ambient* git auth, not
+through mAIestro Code. Make sure `git` is there (`git --version` prompts to
+install the Xcode Command Line Tools if it isn't); `gh auth login` also sets up
+git's credential helper.
+
 mAIestro Code itself never shells out to `gh` — its own API calls use the token you
 save in [GitHub token](#github-token) below. `gh auth login` is for the git
 operations that happen *inside* a spawned session.
 
-**4. Recommended: a Nerd Font.** Claude Code's terminal UI draws box-drawing and
-powerline glyphs that a plain monospace font renders as tofu (□). Install with
-this command:
+</details>
+
+**4. Recommended: a Nerd Font**, so Claude Code's terminal UI draws its
+box-drawing and powerline glyphs instead of tofu (□):
 
 ```bash
 brew install --cask font-jetbrains-mono-nerd-font
@@ -179,12 +208,15 @@ recommended kind:
   | **Issues** | Read and write | Listing and creating issues, assigning, commenting |
   | **Pull requests** | Read and write | Creating, reading, and merging PRs; the checks dot |
 
-  Add **Workflows** if PRs will touch `.github/workflows/`, and **Merge
-  queues** on a repo that merges through a queue — GitHub refuses those merges
-  otherwise. **Actions** and **Commit statuses** are *not* needed: the PR
-  pill's checks dot comes from the pull request's own `mergeable_state`, not
-  the Checks or Statuses APIs, so a token without them still shows check
-  state correctly.
+<details>
+<summary>Optional permissions, classic tokens, and how the token is used</summary>
+
+Add **Workflows** if PRs will touch `.github/workflows/`, and **Merge
+queues** on a repo that merges through a queue — GitHub refuses those merges
+otherwise. **Actions** and **Commit statuses** are *not* needed: the PR
+pill's checks dot comes from the pull request's own `mergeable_state`, not
+the Checks or Statuses APIs, so a token without them still shows check
+state correctly.
 
 A **classic** token works too — it needs the `repo` scope (`public_repo` is
 enough for a public repo).
@@ -194,10 +226,17 @@ sessions push and fetch under your ambient git auth from `gh auth login`. The
 health check below verifies the token without ever creating a throwaway issue
 or PR to test it.
 
+</details>
+
 ### Check Health
 
 Each repo's settings form has a **Check Health** button that runs the
-prerequisites in one pass and streams the results:
+prerequisites in one pass and streams the results. Failures are
+informational — they never block a spawn — and several rows come with a
+copy-pasteable fix.
+
+<details>
+<summary>What it checks</summary>
 
 - **Cloned repo exists** — `cloned_repo_dir` is a git repo whose `origin`
   really points at this `owner/name`.
@@ -215,8 +254,7 @@ prerequisites in one pass and streams the results:
 - **Configured env files exist** and **Terminal font installed** — advisory
   warnings, not failures.
 
-Failures are informational — they never block a spawn — and several rows come
-with a copy-pasteable fix.
+</details>
 
 ## The main window
 
