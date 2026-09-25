@@ -519,8 +519,8 @@ export const api = {
     invoke<void>("app_settings_set", { settings }),
 
   /** Finish onboarding with the chosen options and dismiss the onboarding window. */
-  completeOnboarding: (launchAtLogin: boolean) =>
-    invoke<void>("onboarding_complete", { launchAtLogin }),
+  completeOnboarding: (launchAtLogin: boolean, agent: Agent) =>
+    invoke<void>("onboarding_complete", { launchAtLogin, agent }),
 
   /** Per-tool resolution (path + whether it exists), for the Tool paths status line. */
   toolsResolved: () =>
