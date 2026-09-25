@@ -54,7 +54,7 @@ logged in.
 **2. Install an agentic coding CLI and log in.**
 
 <details>
-<summary>Claude Code</summary>
+<summary>Anthropic Claude Code</summary>
 
 > Claude Code is the default. Either installer works:
 >
@@ -70,8 +70,7 @@ logged in.
 > claude             # log in on first run; /login inside a session re-runs it
 > ```
 >
-> Claude Code needs a Pro, Max, Team, Enterprise, or Console account; the free
-> Claude.ai plan does not include it. mAIestro Code stores no API key of its own —
+> mAIestro Code stores no API key of its own —
 > sessions run under your `claude` login. See the
 > [Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
 > misbehaves, or run `claude doctor`.
@@ -79,7 +78,7 @@ logged in.
 </details>
 
 <details>
-<summary>Codex</summary>
+<summary>OpenAI Codex</summary>
 
 > Install it, then log in:
 >
@@ -88,79 +87,48 @@ logged in.
 > codex --version   # 0.133.0 or newer
 > codex login
 > ```
->
-> Then pick it under **General → Default Agentic Coding CLI**, or per repo in
-> that repo's settings.
->
-> Codex sessions differ in a few ways. The Codex session doesn't take the
-> worktree's name or color; the VS Code bars are still colored. The first time a
-> Codex session starts, Codex asks you to review mAIestro Code's status hooks:
-> choose **trust all**. That one approval covers every workspace from
-> then on, including after mAIestro Code updates. Codex reports no failed-tool
-> errors, so the pill never turns red for those.
 
 </details>
 
 <details>
 <summary>Google Antigravity</summary>
 
-> Antigravity CLI (`agy`) is Google's terminal agent. Install it, then run it
-> once to sign in with your Google account:
->
 > ```bash
 > curl -fsSL https://antigravity.google/cli/install.sh | bash   # or: brew install --cask antigravity-cli
 > agy --version   # 1.2.10 or newer
 > agy             # sign in on first run
 > ```
->
-> Then pick it under **General → Default Agentic Coding CLI**, or per repo in
-> that repo's settings.
->
-> Antigravity sessions differ in a few ways:
-> - The session doesn't take the worktree's name or color, though the VS Code bars
->   are still colored.
-> - Each new workspace starts with Antigravity's own "Do you trust the contents of
->   this project?" prompt. Answer yes, or its status hooks won't load.
-> - Antigravity has no hook for its permission prompts, so the pill shows
->   **Needs you** only when the agent asks you a question, and it stays
->   **Working** after you press Esc until your next prompt.
-> - Drafting uses `gemini-3.8-flash-low` unless you pick another id from
->   `agy models`.
-> - mAIestro Code's status hooks live in the worktree's `.agents/hooks.json`,
->   which must never be committed. If the worktree's `.gitignore` doesn't already
->   ignore it, mAIestro Code appends the line and tells you on the work item.
->   Commit that `.gitignore` change along with your work.
 
 </details>
 
-**3. Authenticate git for your sessions.** Spawned sessions push and fetch
-under your own git auth. The GitHub CLI is the easiest way to set it up:
-
-```bash
-brew install gh
-gh auth login      # choose HTTPS and "authenticate Git with your credentials"
-```
+**3. Authenticate git for your sessions.**
 
 <details>
-<summary>Why this is needed, and how it relates to mAIestro Code's own GitHub access</summary>
+<summary>GitHub CLI</summary>
 
-> Spawned sessions push branches and fetch under your *ambient* git auth, not
-> through mAIestro Code. Make sure `git` is there (`git --version` prompts to
-> install the Xcode Command Line Tools if it isn't); `gh auth login` also sets up
-> git's credential helper.
+> Spawned sessions push and fetch under your *ambient* git auth, not through
+> mAIestro Code. The GitHub CLI is the easiest way to set it up, since
+> `gh auth login` also sets up git's credential helper:
 >
-> mAIestro Code itself never shells out to `gh` — its own API calls use the token you
-> save in [GitHub token](#github-token) below. `gh auth login` is for the git
-> operations that happen *inside* a spawned session.
-
+> ```bash
+> brew install gh
+> gh auth login      # choose HTTPS and "authenticate Git with your credentials"
+> ```
 </details>
 
-**4. Recommended: a Nerd Font**, so Claude Code's terminal UI draws its
-box-drawing and powerline glyphs instead of tofu (□):
+**4. Recommended: a Nerd Font.**
 
-```bash
-brew install --cask font-jetbrains-mono-nerd-font
-```
+<details>
+<summary>JetBrains Mono Nerd Font</summary>
+
+> Claude Code's terminal UI draws box-drawing and powerline glyphs that a plain
+> monospace font renders as tofu (□). Install a Nerd Font with:
+>
+> ```bash
+> brew install --cask font-jetbrains-mono-nerd-font
+> ```
+
+</details>
 
 ### Other Platforms
 
