@@ -1,4 +1,5 @@
-import { PrChecks, PrLink, Session, StatusRecord } from "../api";
+import { Agent, PrChecks, PrLink, Session, StatusRecord } from "../api";
+import { AGENT_NAMES } from "../lib/agents";
 import { accentColor, checkLabel, PR_STATE_ICONS, PrOpenIcon } from "../lib/lifecycle";
 import { effectiveHidden, formatSnoozeRemaining } from "../lib/snooze";
 import { AgentPill } from "./AgentPill";
@@ -15,6 +16,15 @@ export type TeardownPrompt =
   | { id: string; kind: "confirm"; warnings: string[] }
   | { id: string; kind: "blocked"; message: string; accessibility: boolean };
 
+// A pending agent-switch prompt (issue #186): the worktree's VS Code window still
+// runs `editorAgent` after a switch to `agent` (offered right after the switch, or
+// when opening the window later), a restart that couldn't close the window, or a
+// failed switch/restart.
+export type AgentPrompt =
+  | { id: string; kind: "restart"; reason: "switched" | "open"; agent: Agent; editorAgent: Agent }
+  | { id: string; kind: "blocked"; message: string; accessibility: boolean }
+  | { id: string; kind: "error"; message: string };
+
 export type PrCreateState = { creating?: boolean; requestId?: string; error?: string };
 export type PrMergeState = { intent?: boolean; merging?: boolean; requestId?: string; error?: string };
 
@@ -27,6 +37,8 @@ export interface SessionRowProps {
   prMerge: PrMergeState | undefined;
   teardownBusy: boolean;
   teardownConfirm: TeardownPrompt | null;
+  agentPrompt: AgentPrompt | null;
+  agentBusy: boolean;
   cmdOpen: boolean;
   repoHidden: boolean;
   now: number;
@@ -41,6 +53,10 @@ export interface SessionRowProps {
   onCreatePr: () => void;
   onStartMerge: () => void;
   onTearDown: () => void;
+  onChooseAgent: () => void;
+  onFocusEditor: () => void;
+  onRestartEditor: () => void;
+  onDismissAgentPrompt: () => void;
   onRunTeardown: (confirmed: boolean, force: boolean) => void;
   onHide: () => void;
   onUnhide: () => void;
@@ -52,10 +68,10 @@ export interface SessionRowProps {
 }
 
 export function SessionRow({
-  session: s, status, pr, checks, prCreate: prc, prMerge: pm, teardownBusy, teardownConfirm,
+  session: s, status, pr, checks, prCreate: prc, prMerge: pm, teardownBusy, teardownConfirm, agentPrompt, agentBusy,
   cmdOpen, repoHidden, now, openErr, busyCls, busyRingCls,
   onToggleCommands, onOpenInEditor, onOpenPath, onOpenUrl, onOpenAccessibilitySettings,
-  onCreatePr, onStartMerge, onTearDown, onRunTeardown, onHide, onUnhide,
+  onCreatePr, onStartMerge, onTearDown, onChooseAgent, onFocusEditor, onRestartEditor, onDismissAgentPrompt, onRunTeardown, onHide, onUnhide,
   onCancelTeardownConfirm, onDismissPrCreateError, onDismissPrMergeError, onDismissToolError, onDismissOpenError,
 }: SessionRowProps) {
   // While the worktree is still being built in the background (issue #77),
@@ -73,6 +89,10 @@ export function SessionRow({
   // A mAIestro Code operation in flight on this row. The rainbow "working" pill keeps
   // the feedback visible after the command strip collapses on click; mirrors the
   // command buttons' busy flags so it clears on completion or failure.
+  const agent = s.agent ?? "claude";
+  // Switching mid-PR-create/merge or mid-teardown would fight over the window.
+  const switchBusy = creating || teardownBusy || !!prc?.creating || (!!pm?.intent && pr?.state !== "merged");
+  const prompt = agentPrompt?.id === s.id ? agentPrompt : null;
   const opLabel = creating
     ? "Creating…"
     : prc?.creating
@@ -92,7 +112,7 @@ export function SessionRow({
   return (
     <div className={`workspace-item ${sessHidden || repoHidden ? "workspace-item--hidden" : ""}`}>
       <div className="workspace-row" style={{ borderLeft: `3px solid ${accentColor(s.color)}` }}>
-        <AgentPill agent={s.agent ?? "claude"} status={status} onClick={() => { if (!creating) onOpenInEditor(); }} />
+        <AgentPill agent={agent} status={status} onClick={() => { if (!creating) onOpenInEditor(); }} />
         <span className="workspace-title">{s.session_title}</span>
         {opLabel && <span className={`workspace-op-pill ${busyRingCls(opRequestId)}`}>{opLabel}</span>}
         {sessHidden && (
@@ -177,6 +197,14 @@ export function SessionRow({
         >
           {pr?.state === "merged" ? "Merged" : pm?.intent ? "Merging…" : "Merge PR"}
         </button>
+        <button
+          className={`command-btn ${agentBusy ? "btn-busy" : ""}`}
+          onClick={onChooseAgent}
+          disabled={agentBusy || switchBusy}
+          title={creating ? "Still creating this workspace…" : `Choose this worktree's agent (now ${AGENT_NAMES[agent]})`}
+        >
+          AI Agent…
+        </button>
         <HideCommandButton hidden={sessHidden} onHide={onHide} onUnhide={onUnhide} />
         <button
           className={`command-btn ${teardownBusy ? "btn-busy" : ""}`}
@@ -202,6 +230,37 @@ export function SessionRow({
       )}
       {openErr && (
         <DismissibleError lead="Couldn't open" message={openErr} onDismiss={onDismissOpenError} />
+      )}
+      {prompt?.kind === "error" && (
+        <DismissibleError lead="Couldn't switch the agent" message={prompt.message} onDismiss={onDismissAgentPrompt} />
+      )}
+      {prompt?.kind === "restart" && (
+        <div className="cleanup-confirm">
+          <p className="cleanup-lead">
+            {prompt.reason === "open"
+              ? `This session was switched to ${AGENT_NAMES[prompt.agent]}, but its VS Code window is still running ${AGENT_NAMES[prompt.editorAgent]}.`
+              : `VS Code is still running ${AGENT_NAMES[prompt.editorAgent]} in this worktree.`}{" "}
+            Restart the window to start {AGENT_NAMES[prompt.agent]}? The {AGENT_NAMES[prompt.editorAgent]} conversation won't carry over.
+          </p>
+          <div className="issue-actions">
+            <button className={`btn-save ${agentBusy ? "btn-busy" : ""}`} disabled={agentBusy} onClick={onRestartEditor}>
+              Restart VS Code
+            </button>
+            <button className="btn-ghost" onClick={onDismissAgentPrompt}>Later</button>
+          </div>
+        </div>
+      )}
+      {prompt?.kind === "blocked" && (
+        <div className="cleanup-confirm">
+          <p className="cleanup-lead" style={{ whiteSpace: "pre-line" }}>{prompt.message}</p>
+          <div className="issue-actions">
+            <button className="btn-ghost" onClick={onFocusEditor}>Open VS Code</button>
+            {prompt.accessibility && (
+              <button className="btn-ghost" onClick={onOpenAccessibilitySettings}>Open Accessibility Options</button>
+            )}
+            <button className="btn-ghost" onClick={onDismissAgentPrompt}>Cancel</button>
+          </div>
+        </div>
       )}
       {teardownConfirm?.id === s.id && teardownConfirm.kind === "confirm" && (
         <div className="cleanup-confirm">

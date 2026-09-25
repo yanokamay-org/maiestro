@@ -4,11 +4,10 @@ import ClaudeIcon from "../icons/claude.svg?react";
 import OpenAIIcon from "../icons/openai.svg?react";
 
 // How each status state renders in a work-item row. `running`/`idle` are quiet;
-// `busy` and `needs_you` draw attention. States not in the map render nothing.
-// The `creating` state (worktree being built after a spawn, issue #77) is
-// deliberately absent: it renders as a `workspace-op-pill` ("Creating…") next to
-// the title — like "Merging…"/"Tearing down…" — not as an agent status pill, so
-// AgentPill renders nothing for it.
+// `busy` and `needs_you` draw attention. Anything else — no status yet, an
+// `ended` session, or the `creating` state (worktree being built after a spawn,
+// issue #77, which has its own "Creating…" `workspace-op-pill` next to the
+// title) — renders as `idle`, so the pill always shows.
 const STATUS_LABELS: Record<string, string> = {
   running: "Ready",
   busy: "Working",
@@ -20,8 +19,8 @@ const STATUS_LABELS: Record<string, string> = {
 // OpenAI/GPT logo for Codex) tints by live state (green=working, amber=needs you,
 // muted=ready/idle), with the status word beside it. Clicking jumps to where the
 // session lives — the worktree's VS Code window (there is no deep link to the
-// session itself). Renders nothing until a status exists, and once the session
-// has ended. `agent` is the one the worktree was spawned with.
+// session itself). Always rendered: with no live status it reads "Idle".
+// `agent` is the session record's agent.
 export function AgentPill({
   agent,
   status,
@@ -31,16 +30,17 @@ export function AgentPill({
   status?: StatusRecord;
   onClick: () => void;
 }) {
-  if (!status || status.state === "ended") return null;
-  const label = STATUS_LABELS[status.state];
-  if (!label) return null;
+  // No live status (not started, ended, or still creating) reads as idle.
+  const live = status && STATUS_LABELS[status.state] ? status : undefined;
+  const state = live?.state ?? "idle";
+  const label = STATUS_LABELS[state];
   const name = AGENT_NAMES[agent] ?? AGENT_NAMES.claude;
   // `needs_you` carries the reason (e.g. the permission request) in `detail`.
-  const title = status.detail ? `${name} · ${label} — ${status.detail}` : `${name} · ${label}`;
+  const title = live?.detail ? `${name} · ${label} — ${live.detail}` : `${name} · ${label}`;
   // A *surfaced* failed tool tints the pill red; a pending/transient one the
   // agent may still recover from doesn't. The error itself lives in the
   // dismissible row block, not this tooltip. (Codex never reports one.)
-  const cls = `agent-pill agent-pill--${status.state}${status.state === "busy" ? " busy-ring busy-ring--ai" : ""}${status.last_error?.surfaced ? " agent-pill--error" : ""}`;
+  const cls = `agent-pill agent-pill--${state}${state === "busy" ? " busy-ring busy-ring--ai" : ""}${live?.last_error?.surfaced ? " agent-pill--error" : ""}`;
   const Mark = agent === "codex" ? OpenAIIcon : ClaudeIcon;
   return (
     <button

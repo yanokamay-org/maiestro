@@ -33,16 +33,31 @@ pub struct Session {
     /// Title-bar background color (hex).
     pub color: String,
     pub emoji: String,
-    /// The coding agent this session was spawned with (issue #162). Stored at
-    /// spawn and read back on reopen, like `color`, so changing the repo's agent
-    /// later never switches an existing worktree to the other one. Records
-    /// written before the field existed load as Claude.
+    /// The coding agent this session launches (issue #162). Stored at spawn and
+    /// read back on reopen, like `color`, so changing the repo's agent later never
+    /// switches an existing worktree to the other one — only an explicit
+    /// per-session switch does (`session_agent::session_set_agent`, #186).
+    /// Records written before the field existed load as Claude.
     #[serde(default)]
     pub agent: Agent,
+    /// Set when `agent` was switched while the worktree's VS Code window was
+    /// open: the agent that window is still running, until it is restarted (or
+    /// closed and reopened). `None` = the window, if any, runs `agent`. A restart
+    /// is pending exactly when this is `Some` (see [`Session::restart_pending`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor_agent: Option<Agent>,
     /// Hide/snooze state for this work item. `None` = visible. Snooze expiry is
     /// resolved on the frontend at render time.
     #[serde(default)]
     pub hidden: Option<HideState>,
+}
+
+impl Session {
+    /// Whether the open VS Code window runs a different agent than the record's,
+    /// so it must restart to apply a switch.
+    pub fn restart_pending(&self) -> bool {
+        self.editor_agent.is_some_and(|a| a != self.agent)
+    }
 }
 
 fn default_branch() -> String {
@@ -121,5 +136,7 @@ mod tests {
         });
         let s: Session = serde_json::from_value(old).unwrap();
         assert_eq!(s.agent, Agent::Claude);
+        assert_eq!(s.editor_agent, None);
+        assert!(!s.restart_pending());
     }
 }

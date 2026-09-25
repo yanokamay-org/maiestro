@@ -59,6 +59,12 @@ const LOGIN_PATH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5
 /// profile is killed and treated as "couldn't resolve" rather than freezing the
 /// app before the tray even appears (#101).
 fn resolve_login_path() -> Option<String> {
+    // Tests must never run the developer's login shell: sourcing their profile
+    // can prompt, authenticate, or hang. Resolution then uses the process PATH
+    // plus the known-location probes, which is all the tests need.
+    if cfg!(test) {
+        return None;
+    }
     use std::io::Read;
     use std::process::Stdio;
     use std::time::Instant;

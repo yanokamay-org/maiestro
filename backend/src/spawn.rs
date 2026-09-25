@@ -11,10 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::Agent;
 use crate::drafting::{resolve_draft, AgentActivity, DraftStep};
-use crate::editor::{
-    close_editor_window, open_vscode, probe_editor_window, window_marker, worktree_in_use,
-    write_vscode_files, WinProbe,
-};
+use crate::editor::{close_window_and_wait, open_vscode, write_vscode_files, WindowClose};
 use crate::gitops::{git, git_net, local_branch_exists};
 use crate::hooks::{reconcile_session_hooks, write_session_hooks};
 use crate::naming::{default_short_title, slugify};
@@ -153,7 +150,7 @@ fn work_parent_of(work_dir: &Path) -> String {
 /// picked theme: reopening a worktree must not re-theme it. Best-effort — a
 /// worktree with no session record is left untouched, and a write failure only
 /// warns, because the reopen itself must still succeed.
-fn refresh_vscode_files(work_dir: &Path, workspace: &str) {
+pub(crate) fn refresh_vscode_files(work_dir: &Path, workspace: &str) {
     let Some(session) = crate::sessions::get(workspace) else {
         return;
     };
@@ -287,6 +284,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
         color: color.to_string(),
         emoji: emoji.to_string(),
         agent,
+        editor_agent: None,
         hidden: None,
     };
     crate::sessions::save(&session).map_err(|e| format!("could not record session: {e}"))?;
@@ -868,47 +866,28 @@ pub async fn teardown(session_id: String, confirmed: bool, force: bool) -> Resul
     //    `force` skips this entirely: the user chose "Delete anyway" knowing the
     //    open window may crash.
     if !force {
-        if let Some(marker) = window_marker(&work_dir) {
-            close_editor_window(&marker).await;
-            let mut waited = 0u64;
-            loop {
-                match probe_editor_window(&marker).await {
-                    // Window confirmed gone — safe to delete.
-                    WinProbe::Absent => break,
-                    // No Accessibility grant: we can neither close nor see the
-                    // window. Fall back to the permission-free check — if nothing
-                    // is using the worktree, proceed; otherwise stop and let the
-                    // user close the window, grant Accessibility, or force it.
-                    WinProbe::Denied => {
-                        if worktree_in_use(&work_dir).await {
-                            return Ok(TeardownOutcome::BlockedByEditor {
-                                message:
-                                    "I couldn't tear down because the Visual Studio Code window \
-                                     is still open.\n\nYou have two options: close the window \
-                                     yourself, or enable Accessibility for mAIestro Code so it can \
-                                     close the window for you."
-                                        .to_string(),
-                                accessibility: true,
-                            });
-                        }
-                        break;
-                    }
-                    // Window still open with Accessibility granted: the close is in
-                    // flight (or the user may close it). Wait a bit, then give up.
-                    WinProbe::Open => {
-                        if waited >= 4000 {
-                            return Ok(TeardownOutcome::BlockedByEditor {
-                                message:
-                                    "I couldn't tear down because the Visual Studio Code window \
-                                     is still open. Close its window, then try Tear Down again."
-                                        .to_string(),
-                                accessibility: false,
-                            });
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                        waited += 300;
-                    }
-                }
+        match close_window_and_wait(&work_dir).await {
+            WindowClose::Closed => {}
+            // No Accessibility grant: we can neither close nor see the window, and
+            // something still uses the worktree. Let the user close the window,
+            // grant Accessibility, or force it.
+            WindowClose::InUse => {
+                return Ok(TeardownOutcome::BlockedByEditor {
+                    message: "I couldn't tear down because the Visual Studio Code window \
+                              is still open.\n\nYou have two options: close the window \
+                              yourself, or enable Accessibility for mAIestro Code so it can \
+                              close the window for you."
+                        .to_string(),
+                    accessibility: true,
+                });
+            }
+            WindowClose::StillOpen => {
+                return Ok(TeardownOutcome::BlockedByEditor {
+                    message: "I couldn't tear down because the Visual Studio Code window \
+                              is still open. Close its window, then try Tear Down again."
+                        .to_string(),
+                    accessibility: false,
+                });
             }
         }
     }

@@ -205,6 +205,58 @@ fn reconcile_hooks_with(work_dir: &Path, ws_id: &str, bin: &Path) -> bool {
     std::fs::write(&path, updated).is_ok()
 }
 
+/// Remove mAIestro Code's Claude status hooks for `ws_id` from the worktree's
+/// [`claude_hook_file`], keeping every other hook and setting — used when a
+/// session switches away from Claude (issue #186), so a `claude` run by hand in
+/// that worktree no longer writes the session's status. Deletes the file if
+/// nothing else is left in it. Best-effort; returns whether it changed anything.
+pub fn remove_claude_hooks(work_dir: &Path, ws_id: &str) -> bool {
+    let path = claude_hook_file(work_dir);
+    let Ok(existing) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&existing) else {
+        return false;
+    };
+    if !root.is_object() || !has_maiestro_hooks(&root, ws_id) {
+        return false;
+    }
+    let root = strip_hooks(root, ws_id);
+    if root.as_object().is_some_and(|o| o.is_empty()) {
+        return std::fs::remove_file(&path).is_ok();
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap() + "\n").is_ok()
+}
+
+/// Drop our hook groups for `ws_id` from a parsed settings `root`, then any event
+/// left empty, then `hooks` itself if empty. Everything else is preserved.
+fn strip_hooks(mut root: serde_json::Value, ws_id: &str) -> serde_json::Value {
+    let Some(events) = root["hooks"].as_object().cloned() else {
+        return root;
+    };
+    let mut kept = serde_json::Map::new();
+    for (event, groups) in events {
+        match groups.as_array() {
+            Some(gs) => {
+                let gs: Vec<_> = gs.iter().filter(|g| !group_is_ours(g, ws_id)).cloned().collect();
+                if !gs.is_empty() {
+                    kept.insert(event, serde_json::Value::Array(gs));
+                }
+            }
+            None => {
+                kept.insert(event, groups);
+            }
+        }
+    }
+    let obj = root.as_object_mut().unwrap();
+    if kept.is_empty() {
+        obj.remove("hooks");
+    } else {
+        obj.insert("hooks".into(), serde_json::Value::Object(kept));
+    }
+    root
+}
+
 /// At startup, heal stale hook binary paths across every tracked Claude session
 /// (see `reconcile_session_hooks`), and point the Codex wrapper at the running
 /// binary (once, however many Codex sessions exist). Logs what it rewrote.
@@ -554,5 +606,39 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("/old/maiestro") && text.contains("mAIestro Code.app"), "{text}");
         assert!(!reconcile_hooks_with(dir.path(), ws, new_bin), "no churn when current");
+    }
+
+    /// Switching away from Claude (#186) strips only our hooks for this
+    /// workspace: a user hook, another workspace's hook, and unrelated settings
+    /// survive; a file left with nothing in it is deleted.
+    #[test]
+    fn remove_claude_hooks_keeps_everything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = "186-switch";
+        let path = claude_hook_file(dir.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let bin = Path::new("/x/maiestro");
+        let mut root = merge_hooks(serde_json::json!({ "model": "opus" }), bin, ws);
+        root["hooks"]["Stop"].as_array_mut().unwrap().push(serde_json::json!({
+            "hooks": [{ "type": "command", "command": "echo hi" }]
+        }));
+        root["hooks"]["Stop"].as_array_mut().unwrap().push(serde_json::json!({
+            "hooks": [{ "type": "command", "command": "'/x/maiestro' hook idle --workspace '99-other'" }]
+        }));
+        std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap()).unwrap();
+
+        assert!(remove_claude_hooks(dir.path(), ws));
+        let left: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(!has_maiestro_hooks(&left, ws), "{left}");
+        assert_eq!(left["model"], "opus");
+        let stop = left["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 2, "{left}");
+        assert!(left["hooks"].get("SessionStart").is_none(), "empty events are dropped: {left}");
+        assert!(!remove_claude_hooks(dir.path(), ws), "nothing left to remove");
+
+        // Only ours → the file goes away entirely.
+        std::fs::write(&path, serde_json::to_string_pretty(&merge_hooks(serde_json::json!({}), bin, ws)).unwrap()).unwrap();
+        assert!(remove_claude_hooks(dir.path(), ws));
+        assert!(!path.exists());
     }
 }

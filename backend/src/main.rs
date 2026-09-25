@@ -23,6 +23,7 @@ mod prompts;
 mod repo_context;
 mod repo_settings;
 mod schema;
+mod session_agent;
 mod sessions;
 mod spawn;
 mod status;
@@ -352,7 +353,9 @@ fn main() {
             spawn::draft_spawn_preview,
             spawn::confirm_spawn,
             spawn::create_issue_direct,
-            editor::open_in_editor,
+            session_agent::session_open_in_editor,
+            session_agent::session_set_agent,
+            session_agent::session_restart_editor,
             hooks::codex_hooks_review_needed,
             editor::open_repo_in_editor,
             spawn::teardown,

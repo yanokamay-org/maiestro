@@ -8,7 +8,7 @@
 //! (`osascript`) rather than direct Apple events, matching `focus_editor_window`
 //! and avoiding a second Automation grant. Extracted from `spawn.rs` (issue #99).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::agent::Agent;
@@ -206,21 +206,19 @@ return "notfound""#
 }
 
 /// Open the worktree in VS Code: focus (and bring to the front) an existing
-/// window for that folder if one is open, otherwise launch a new window.
-#[tauri::command]
-pub async fn open_in_editor(work_dir: String) -> Result<(), String> {
-    crate::log_invoke!("open_in_editor", work_dir = %work_dir);
-    let path = PathBuf::from(&work_dir);
-    if let Some(marker) = window_marker(&path) {
+/// window for that folder if one is open, otherwise launch a new window. Backs
+/// `session_agent::session_open_in_editor`.
+pub async fn focus_or_open(path: &Path) -> Result<(), String> {
+    if let Some(marker) = window_marker(path) {
         if focus_editor_window(&marker).await {
             return Ok(());
         }
     }
-    open_vscode(&path)
+    open_vscode(path)
 }
 
 /// Open a tracked repo's main cloned repo directory in VS Code. Unlike
-/// `open_in_editor` this is a pure launch — no worktree, no session, no status —
+/// `session_open_in_editor` this is a pure launch — no worktree, no session, no status —
 /// reusing the same `open_vscode` path logic as spawned worktrees.
 #[tauri::command]
 pub async fn open_repo_in_editor(repo: String) -> Result<(), String> {
@@ -295,6 +293,59 @@ return "absent""#
         }
         // Non-zero exit (e.g. "-25211 not allowed assistive access") or spawn failure.
         _ => WinProbe::Denied,
+    }
+}
+
+/// Outcome of [`close_window_and_wait`].
+pub enum WindowClose {
+    /// The window is confirmed gone (or was never open).
+    Closed,
+    /// No Accessibility grant, so we could neither close nor see the window, and
+    /// something is still using the worktree — the user must close it (or grant
+    /// Accessibility so mAIestro Code can).
+    InUse,
+    /// Accessibility is granted but the window didn't close within the wait.
+    StillOpen,
+}
+
+/// Close the worktree's VS Code window and **confirm** it is gone before
+/// returning `Closed` — never on a guess, because the callers (teardown deletes
+/// the folder, a restart relaunches the agent) must not act under a live window.
+/// Without Accessibility we fall back to the permission-free `worktree_in_use`
+/// check. Waits up to ~4 s for an in-flight close.
+pub async fn close_window_and_wait(work_dir: &Path) -> WindowClose {
+    let Some(marker) = window_marker(work_dir) else {
+        return WindowClose::Closed;
+    };
+    close_editor_window(&marker).await;
+    let mut waited = 0u64;
+    loop {
+        match probe_editor_window(&marker).await {
+            WinProbe::Absent => return WindowClose::Closed,
+            WinProbe::Denied => {
+                return if worktree_in_use(work_dir).await { WindowClose::InUse } else { WindowClose::Closed };
+            }
+            WinProbe::Open => {
+                if waited >= 4000 {
+                    return WindowClose::StillOpen;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                waited += 300;
+            }
+        }
+    }
+}
+
+/// Whether the worktree's VS Code window is (or, lacking Accessibility, looks)
+/// open: the window probe, falling back to `worktree_in_use` when denied.
+pub async fn editor_window_open(work_dir: &Path) -> bool {
+    let Some(marker) = window_marker(work_dir) else {
+        return false;
+    };
+    match probe_editor_window(&marker).await {
+        WinProbe::Open => true,
+        WinProbe::Absent => false,
+        WinProbe::Denied => worktree_in_use(work_dir).await,
     }
 }
 

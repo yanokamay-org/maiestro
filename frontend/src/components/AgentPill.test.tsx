@@ -35,10 +35,14 @@ describe("AgentPill (#162)", () => {
     expect(markPath()).toMatch(/^M22\.2819/);
   });
 
-  it("renders nothing before a status exists or once the session ended", () => {
-    const { container, rerender } = render(<AgentPill agent="codex" onClick={() => {}} />);
-    expect(container).toBeEmptyDOMElement();
-    rerender(<AgentPill agent="codex" status={status({ state: "ended" })} onClick={() => {}} />);
-    expect(container).toBeEmptyDOMElement();
+  it("shows Idle before a status exists, once the session ended, and while creating", () => {
+    const { rerender } = render(<AgentPill agent="codex" onClick={() => {}} />);
+    expect(screen.getByRole("button")).toHaveAttribute("title", "Codex · Idle");
+    expect(screen.getByRole("button")).toHaveClass("agent-pill--idle");
+    for (const state of ["ended", "creating"] as const) {
+      rerender(<AgentPill agent="codex" status={status({ state, last_error: { message: "x", surfaced: true } as never })} onClick={() => {}} />);
+      expect(screen.getByRole("button")).toHaveAttribute("title", "Codex · Idle");
+      expect(screen.getByRole("button")).not.toHaveClass("agent-pill--error");
+    }
   });
 });

@@ -102,6 +102,23 @@ export type TeardownOutcome =
   | { status: "needs_confirmation"; warnings: string[] }
   | { status: "blocked_by_editor"; message: string; accessibility: boolean };
 
+/** `session_set_agent`: whether the open window still runs the other agent. */
+export interface SetAgentOutcome {
+  restart_needed: boolean;
+  editor_agent: Agent | null;
+}
+
+/** `session_open_in_editor`: opened, or the window must restart to apply a
+ *  pending agent switch. */
+export type OpenOutcome =
+  | { status: "opened" }
+  | { status: "restart_required"; agent: Agent; editor_agent: Agent };
+
+/** `session_restart_editor`: same blocked shape as teardown's. */
+export type RestartOutcome =
+  | { status: "restarted" }
+  | { status: "blocked_by_editor"; message: string; accessibility: boolean };
+
 export interface Session {
   id: string;
   repo: string;
@@ -114,8 +131,12 @@ export interface Session {
   session_title: string;
   color: string;
   emoji: string;
-  /** The agent this worktree was spawned with (fixed at spawn). */
+  /** The agent this worktree launches: fixed at spawn, changed only by an
+   *  explicit per-session switch (`setSessionAgent`). */
   agent: Agent;
+  /** Set while the worktree's VS Code window still runs a different agent than
+   *  `agent` (switched while open, not yet restarted). Absent otherwise. */
+  editor_agent?: Agent | null;
   hidden: HideState | null;
 }
 
@@ -392,8 +413,19 @@ export const api = {
   revealPath: (path: string) =>
     invoke<void>("reveal_path", { path }),
 
-  openInEditor: (workDir: string) =>
-    invoke<void>("open_in_editor", { workDir }),
+  /** Focus or open a session's VS Code window, unless a pending agent switch
+   *  means it must restart first. `focusExisting` skips that check and just
+   *  brings the (old agent's) window to the front. */
+  openInEditor: (sessionId: string, focusExisting = false) =>
+    invoke<OpenOutcome>("session_open_in_editor", { sessionId, focusExisting }),
+
+  /** Switch an existing session to another agent (issue #186). */
+  setSessionAgent: (sessionId: string, agent: Agent) =>
+    invoke<SetAgentOutcome>("session_set_agent", { sessionId, agent }),
+
+  /** Close and reopen a session's VS Code window so it runs the recorded agent. */
+  restartSessionEditor: (sessionId: string) =>
+    invoke<RestartOutcome>("session_restart_editor", { sessionId }),
 
   /** Whether opening this session (or spawning in this repo, with no session)
    *  starts a Codex session that will ask the user to review mAIestro Code's
