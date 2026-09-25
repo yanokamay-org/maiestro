@@ -47,11 +47,9 @@ You need macOS, `git`, a GitHub account, and **one** agentic coding CLI —
 Claude Code (the default), Codex CLI, or Antigravity CLI — installed and
 logged in.
 
-**1. Install mAIestro Code.** Download the latest `.dmg` from the
-[Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
-**mAIestro Code** to Applications.
+1. Install mAIestro Code. Download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications.
 
-**2. Install an agentic coding CLI and log in.**
+2. Install an agentic coding CLI and log in.
 
 <details>
 <summary>Anthropic Claude Code</summary>
@@ -101,7 +99,7 @@ logged in.
 
 </details>
 
-**3. Authenticate git for your sessions.**
+3. Authenticate git for your sessions.
 
 <details>
 <summary>GitHub CLI</summary>
@@ -116,7 +114,7 @@ logged in.
 > ```
 </details>
 
-**4. Recommended: a Nerd Font.**
+4. Recommended: a Nerd Font.
 
 <details>
 <summary>JetBrains Mono Nerd Font</summary>
