@@ -2631,3 +2631,14 @@ body {
 .notice-banner-dismiss:hover {
   color: var(--text);
 }
+
+/* One-time Codex hook-trust instructions (CodexHooksDialog). */
+.codex-hooks-dialog {
+  max-width: 420px;
+}
+.codex-hooks-lead {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}

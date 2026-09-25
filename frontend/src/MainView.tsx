@@ -20,6 +20,7 @@ import { SettingsProblemBanner } from "./components/SettingsProblemBanner";
 import { HideCommandButton, SnoozeLabel } from "./components/HideControls";
 import { RemoveConfirm } from "./components/RemoveConfirm";
 import { HideSnoozeDialog } from "./components/HideSnoozeDialog";
+import { CodexHooksDialog } from "./components/CodexHooksDialog";
 import { SessionRow, TeardownPrompt, PrCreateState, PrMergeState } from "./components/SessionRow";
 import { PickerOverlay, Picker, Preview, Expand } from "./components/PickerOverlay";
 import LogoIcon from "./icons/logo.svg?react";
@@ -94,6 +95,8 @@ export function MainView() {
   const [openSessionErr, setOpenSessionErr] = useState<Record<string, string>>({});
   // Target of the hide/snooze dialog, or null when closed.
   const [hideTarget, setHideTarget] = useState<HideTarget | null>(null);
+  // A spawn or reopen waiting on the one-time Codex hook-trust notice.
+  const [hooksNotice, setHooksNotice] = useState<{ proceed: () => void } | null>(null);
   // Repo (full_name) awaiting remove confirmation; at most one at a time.
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   // Per-repo removal failure message, keyed by repo full_name.
@@ -349,6 +352,15 @@ export function MainView() {
     setPicker((p) => (p ? { ...p, preview: undefined, note: undefined } : p));
   }
 
+  // Before VS Code opens a Codex session that will ask the user to review our
+  // status hooks, explain the one-time `/hooks` → trust all step. The backend
+  // asks Codex itself, so this only shows when Codex really will prompt; the
+  // action runs on "Open in VS Code" and is dropped on Cancel.
+  async function withCodexHooksNotice(repo: string, sessionId: string | undefined, proceed: () => void) {
+    if (await api.codexHooksReviewNeeded(repo, sessionId)) setHooksNotice({ proceed });
+    else proceed();
+  }
+
   // Confirm a spawn preview: create/update the issue, then spawn. On success the
   // overlay closes and we land back in the main window.
   async function confirmSpawnNow() {
@@ -356,6 +368,10 @@ export function MainView() {
     const repo = picker.repo;
     const pv = picker.preview;
     if (!pv.shortTitle.trim() || !pv.issueTitle.trim()) return;
+    withCodexHooksNotice(repo, undefined, () => void spawnFromPreview(repo, pv));
+  }
+
+  async function spawnFromPreview(repo: string, pv: NonNullable<Picker["preview"]>) {
     setPreview({ spawning: true, error: undefined });
     const edits: SpawnEdits = {
       issue_number: pv.issueNumber,
@@ -594,9 +610,11 @@ export function MainView() {
   // launcher CLI can be missing — the health check tests for exactly this).
   const clearSessionOpenErr = (id: string) =>
     setOpenSessionErr((m) => { const { [id]: _drop, ...rest } = m; return rest; });
-  function openSessionInEditor(id: string, dir: string) {
+  function openSessionInEditor(id: string, repo: string, dir: string) {
     clearSessionOpenErr(id); // clear a stale error before retrying, like the repo-level button
-    api.openInEditor(dir).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+    withCodexHooksNotice(repo, id, () => {
+      api.openInEditor(dir).catch((e) => setOpenSessionErr((m) => ({ ...m, [id]: String(e) })));
+    });
   }
   function revealSessionPath(id: string, dir: string) {
     clearSessionOpenErr(id);
@@ -756,7 +774,7 @@ export function MainView() {
                             busyCls={busyCls}
                             busyRingCls={busyRingCls}
                             onToggleCommands={() => setCommandsOpen((id) => (id === s.id ? null : s.id))}
-                            onOpenInEditor={() => openSessionInEditor(s.id, s.work_dir)}
+                            onOpenInEditor={() => openSessionInEditor(s.id, s.repo, s.work_dir)}
                             onOpenPath={() => revealSessionPath(s.id, s.work_dir)}
                             onOpenUrl={(url) => api.openUrl(url)}
                             onOpenAccessibilitySettings={() => api.openAccessibilitySettings()}
@@ -824,6 +842,13 @@ export function MainView() {
           />
         );
       })()}
+
+      {hooksNotice && (
+        <CodexHooksDialog
+          onContinue={() => { const { proceed } = hooksNotice; setHooksNotice(null); proceed(); }}
+          onClose={() => setHooksNotice(null)}
+        />
+      )}
 
       {hideTarget && (
         <HideSnoozeDialog

@@ -395,6 +395,12 @@ export const api = {
   openInEditor: (workDir: string) =>
     invoke<void>("open_in_editor", { workDir }),
 
+  /** Whether opening this session (or spawning in this repo, with no session)
+   *  starts a Codex session that will ask the user to review mAIestro Code's
+   *  status hooks. Always false for Claude, and on any error. */
+  codexHooksReviewNeeded: (repo: string, sessionId?: string) =>
+    invoke<boolean>("codex_hooks_review_needed", { repo, sessionId: sessionId ?? null }).catch(() => false),
+
   openRepoInEditor: (repo: string) =>
     invoke<void>("open_repo_in_editor", { repo }),
 

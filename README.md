@@ -83,8 +83,8 @@ codex login
 
 Codex sessions differ in a few ways. The Codex session doesn't take the
 worktree's name or color; the VS Code bars are still colored. The first time a
-Codex session starts, Codex asks you to review mAIestro Code's status hooks: run
-`/hooks` and choose **trust all**. That one approval covers every workspace from
+Codex session starts, Codex asks you to review mAIestro Code's status hooks:
+choose **trust all**. That one approval covers every workspace from
 then on, including after mAIestro Code updates. Codex reports no failed-tool
 errors, so the pill never turns red for those.
 
