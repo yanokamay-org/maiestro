@@ -36,7 +36,7 @@ export const repoSettingsUISchema = {
     { type: "Control", scope: "#/properties/post_spawn_commands", label: "Post-spawn commands" },
     { type: "Control", scope: "#/properties/comment_on_spawn", label: "Comment on the issue when spawning" },
     { type: "Control", scope: "#/properties/delete_remote_on_teardown", label: "Delete remote branch on teardown" },
-    { type: "Control", scope: "#/properties/agent", label: "Agent" },
+    { type: "Control", scope: "#/properties/agent", label: "Agentic Coding CLI" },
     { type: "Control", scope: "#/properties/prompt_models", label: "Prompt model" },
     { type: "Control", scope: "#/properties/prompts" },
   ],
@@ -264,7 +264,7 @@ function PromptModelsControl(props: ControlProps) {
         autoCapitalize="off"
         autoCorrect="off"
       />
-      <div className="jsf-help">Editing the model for {AGENT_PRODUCTS[agent]}, this repo&apos;s agent.</div>
+      <div className="jsf-help">Editing the model for {AGENT_PRODUCTS[agent]}, this repo&apos;s agentic coding CLI.</div>
       {suggestions.length > 0 && (
         <datalist id={listId}>
           {suggestions.map((m) => (
@@ -518,7 +518,7 @@ function PromptsControl(props: ControlProps) {
     <div className="control jsf-control jsf-prompts">
       <label className="jsf-label">AI prompts</label>
       <div className="jsf-help">
-        Instructions sent to this repo&apos;s agent. Leave as the default, or override with
+        Instructions sent to this repo&apos;s agentic coding CLI. Leave as the default, or override with
         your own text (a custom prompt, or a /skill invocation).
       </div>
       {PROMPT_FIELDS.map(({ key, label, help }) => {
