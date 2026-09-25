@@ -70,7 +70,7 @@ pub async fn session_set_agent(session_id: String, agent: Agent) -> Result<SetAg
         let from = session.agent;
         let window_open = editor_window_open(&work_dir).await;
 
-        crate::hooks::write_session_hooks(&work_dir, &session_id, agent).await?;
+        let notice = crate::hooks::write_session_hooks(&work_dir, &session_id, agent).await?;
         match from {
             Agent::Claude => {
                 crate::hooks::remove_claude_hooks(&work_dir, &session_id);
@@ -81,7 +81,10 @@ pub async fn session_set_agent(session_id: String, agent: Agent) -> Result<SetAg
             // Codex's hooks ride on its launch command; nothing is in the worktree.
             Agent::Codex => {}
         }
-        let session = switched(session, agent, window_open);
+        let mut session = switched(session, agent, window_open);
+        if notice.is_some() {
+            session.notice = notice;
+        }
         crate::sessions::save(&session).map_err(|e| e.to_string())?;
         crate::spawn::refresh_vscode_files(&work_dir, &session_id);
         tracing::info!(from = %from, to = %agent, window_open, restart_pending = session.restart_pending(), "switched session agent");
@@ -231,6 +234,10 @@ mod tests {
         let agy_hooks = std::fs::read_to_string(wt.path().join(".agents/hooks.json")).unwrap();
         assert!(agy_hooks.contains("maiestro-status") && agy_hooks.contains("--workspace '186-x'"), "{agy_hooks}");
         assert_eq!(read("tasks.json")["tasks"][0]["label"], "Start Antigravity");
+        let gi = std::fs::read_to_string(wt.path().join(".gitignore")).unwrap();
+        assert!(gi.contains(".agents/hooks.json"), "{gi}");
+        let notice = crate::sessions::get(&s.id).unwrap().notice.expect("gitignore notice recorded");
+        assert!(notice.contains(".gitignore"), "{notice}");
         session_set_agent(s.id.clone(), Agent::Claude).await.unwrap();
         assert!(!wt.path().join(".agents/hooks.json").exists());
         assert_eq!(read("tasks.json")["tasks"][0]["label"], "Start Claude");

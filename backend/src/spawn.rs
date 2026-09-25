@@ -286,6 +286,7 @@ async fn do_spawn(d: SpawnDecision<'_>) -> Result<SpawnResult, String> {
         agent,
         editor_agent: None,
         hidden: None,
+        notice: None,
     };
     crate::sessions::save(&session).map_err(|e| format!("could not record session: {e}"))?;
 
@@ -421,7 +422,9 @@ async fn do_finish_spawn(bg: &SpawnBg) -> Result<Vec<String>, String> {
     }
 
     write_vscode_files(&bg.work_dir, &bg.work_parent, &bg.color, &bg.session_title, bg.agent)?;
-    write_session_hooks(&bg.work_dir, &bg.workspace, bg.agent).await?;
+    if let Some(notice) = write_session_hooks(&bg.work_dir, &bg.workspace, bg.agent).await? {
+        crate::sessions::set_notice(&bg.workspace, notice);
+    }
 
     // Run the repo's post-spawn commands (e.g. `pnpm install`) in the new
     // worktree before opening the editor, so the session starts ready.

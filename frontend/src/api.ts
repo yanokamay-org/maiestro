@@ -140,6 +140,9 @@ export interface Session {
    *  `agent` (switched while open, not yet restarted). Absent otherwise. */
   editor_agent?: Agent | null;
   hidden: HideState | null;
+  /** Something mAIestro Code changed in the worktree that the user should know
+   *  about (e.g. an appended `.gitignore` line). Absent once dismissed. */
+  notice?: string | null;
 }
 
 /** Lifecycle of a pull request, as GitHub reports it. */
@@ -458,6 +461,9 @@ export const api = {
 
   sessionsList: () =>
     invoke<Session[]>("sessions_list"),
+  /** Clear a work item's `notice` once the user dismisses it. */
+  dismissSessionNotice: (sessionId: string) =>
+    invoke<void>("session_dismiss_notice", { sessionId }),
 
   sessionsStatusList: () =>
     invoke<StatusRecord[]>("sessions_status_list"),

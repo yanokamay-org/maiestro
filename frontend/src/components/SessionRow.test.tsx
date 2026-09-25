@@ -20,7 +20,7 @@ function props(over: Partial<SessionRowProps> = {}): SessionRowProps {
     onOpenAccessibilitySettings: noop, onCreatePr: noop, onStartMerge: noop, onTearDown: noop,
     onChooseAgent: noop, onFocusEditor: noop, onRestartEditor: noop, onDismissAgentPrompt: noop, onRunTeardown: noop,
     onHide: noop, onUnhide: noop, onCancelTeardownConfirm: noop, onDismissPrCreateError: noop,
-    onDismissPrMergeError: noop, onDismissToolError: noop, onDismissOpenError: noop,
+    onDismissPrMergeError: noop, onDismissToolError: noop, onDismissOpenError: noop, onDismissNotice: noop,
     ...over,
   };
 }
@@ -76,5 +76,19 @@ describe("SessionRow agent switch (#186)", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Open VS Code" }));
     expect(onFocusEditor).toHaveBeenCalled();
+  });
+});
+
+describe("SessionRow notice (#185)", () => {
+  it("shows a session's notice until dismissed, and nothing without one", () => {
+    const onDismissNotice = vi.fn();
+    const notice = "Added `.agents/hooks.json` to this worktree's `.gitignore`.";
+    const { rerender } = render(<SessionRow {...props({ session: { ...session, notice }, onDismissNotice })} />);
+    expect(screen.getByText("mAIestro Code changed this worktree")).toBeInTheDocument();
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismissNotice).toHaveBeenCalled();
+    rerender(<SessionRow {...props()} />);
+    expect(screen.queryByText("mAIestro Code changed this worktree")).toBeNull();
   });
 });

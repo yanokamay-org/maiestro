@@ -107,6 +107,10 @@ Antigravity sessions differ in a few ways:
   **Working** after you press Esc until your next prompt.
 - Drafting uses `gemini-3.8-flash-low` unless you pick another id from
   `agy models`.
+- mAIestro Code's status hooks live in the worktree's `.agents/hooks.json`,
+  which must never be committed. If the worktree's `.gitignore` doesn't already
+  ignore it, mAIestro Code appends the line and tells you on the work item.
+  Commit that `.gitignore` change along with your work.
 
 **3. Set up git and GitHub for your sessions.** Spawned sessions push branches
 and fetch under your *ambient* git auth, not through mAIestro Code. Make sure `git`

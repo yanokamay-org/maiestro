@@ -355,6 +355,7 @@ fn main() {
             spawn::create_issue_direct,
             session_agent::session_open_in_editor,
             session_agent::session_set_agent,
+            sessions::session_dismiss_notice,
             session_agent::session_restart_editor,
             hooks::codex_hooks_review_needed,
             editor::open_repo_in_editor,

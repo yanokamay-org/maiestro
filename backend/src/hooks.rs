@@ -54,18 +54,21 @@ fn claude_hook_file(work_dir: &Path) -> PathBuf {
 /// unrelated hooks). Codex: nothing is written into the worktree — its hooks ride
 /// on the launch command ([`codex_hook_overrides`]) — so only the stable wrapper
 /// they call is refreshed. Antigravity: set our named group in
-/// [`antigravity_hook_file`]. Either way the generated files are excluded from git.
-pub async fn write_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> Result<(), String> {
+/// [`antigravity_hook_file`], and make sure the worktree's `.gitignore` covers it
+/// ([`ensure_antigravity_gitignored`]). Either way the generated files are
+/// excluded from git. Returns a notice for the user when it changed something
+/// they should know about (today: the `.gitignore`).
+pub async fn write_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> Result<Option<String>, String> {
     if agent == Agent::Codex {
         ensure_hook_wrapper()?;
-        exclude_generated_files(work_dir, agent).await;
-        return Ok(());
+        exclude_generated_files(work_dir).await;
+        return Ok(None);
     }
     let bin = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     if agent == Agent::Antigravity {
         write_antigravity_hooks(work_dir, ws_id, &bin)?;
-        exclude_generated_files(work_dir, agent).await;
-        return Ok(());
+        exclude_generated_files(work_dir).await;
+        return Ok(ensure_antigravity_gitignored(work_dir, true));
     }
 
     let path = claude_hook_file(work_dir);
@@ -85,8 +88,8 @@ pub async fn write_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> 
     std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap() + "\n")
         .map_err(|e| e.to_string())?;
 
-    exclude_generated_files(work_dir, agent).await;
-    Ok(())
+    exclude_generated_files(work_dir).await;
+    Ok(None)
 }
 
 /// Build mAIestro Code's Claude status-hook entries (event name → hook group) for
@@ -189,7 +192,9 @@ fn merge_hooks(mut root: serde_json::Value, bin: &Path, ws_id: &str) -> serde_js
 ///   or if the file carries none of our hooks (we never inject into a worktree
 ///   that didn't already have them). Writes only when the resulting JSON
 ///   actually changed, so it doesn't churn the file on every launch.
-/// - Antigravity: the same rules for our group in `.agents/hooks.json`.
+/// - Antigravity: the same rules for our group in `.agents/hooks.json`, plus
+///   re-adding its `.gitignore` line if it went missing (which records a notice
+///   on the session).
 ///
 /// Returns true when it rewrote something.
 pub fn reconcile_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> bool {
@@ -200,7 +205,18 @@ pub fn reconcile_session_hooks(work_dir: &Path, ws_id: &str, agent: Agent) -> bo
         return false;
     };
     if agent == Agent::Antigravity {
-        return reconcile_antigravity_hooks_with(work_dir, ws_id, &bin);
+        let rewrote = reconcile_antigravity_hooks_with(work_dir, ws_id, &bin);
+        // Put the ignore line back if someone removed it — but only for a
+        // worktree that has our hooks, and without re-warning about a tracked
+        // file on every launch.
+        let notice = antigravity_hook_file(work_dir)
+            .is_file()
+            .then(|| ensure_antigravity_gitignored(work_dir, false))
+            .flatten();
+        if let Some(notice) = &notice {
+            crate::sessions::set_notice(ws_id, notice.clone());
+        }
+        return rewrote || notice.is_some();
     }
     reconcile_hooks_with(work_dir, ws_id, &bin)
 }
@@ -419,6 +435,90 @@ fn reconcile_antigravity_hooks_with(work_dir: &Path, ws_id: &str, bin: &Path) ->
     std::fs::write(&path, updated).is_ok()
 }
 
+// ── Antigravity: keep `.agents/hooks.json` out of git via `.gitignore` ─────────
+
+/// Our Antigravity hook file, relative to the worktree (and as a `.gitignore` line).
+const ANTIGRAVITY_HOOK_REL: &str = ".agents/hooks.json";
+
+/// Whether `git check-ignore -v --no-index` output says a **`.gitignore`**
+/// ignores the path: its source (the text before the first `:`) is a
+/// `.gitignore` file, and the matching pattern isn't a `!` negation. A match in
+/// `.git/info/exclude` or the user's global excludes doesn't count — those are
+/// local, and the point is that nobody commits the file. Pure for tests.
+fn gitignore_covers(check_ignore_v: &str) -> bool {
+    let Some(line) = check_ignore_v.lines().find(|l| !l.trim().is_empty()) else {
+        return false;
+    };
+    let Some((meta, _path)) = line.split_once('\t') else {
+        return false;
+    };
+    let mut fields = meta.splitn(3, ':');
+    let (Some(source), Some(_line_no), Some(pattern)) = (fields.next(), fields.next(), fields.next()) else {
+        return false;
+    };
+    Path::new(source).file_name().is_some_and(|f| f == ".gitignore") && !pattern.starts_with('!')
+}
+
+/// `.gitignore` contents with our block appended, on its own line.
+fn gitignore_with_hook_line(existing: &str) -> String {
+    let mut body = existing.to_string();
+    if !body.is_empty() && !body.ends_with('\n') {
+        body.push('\n');
+    }
+    if !body.is_empty() {
+        body.push('\n');
+    }
+    body.push_str("# mAIestro Code: local Antigravity status hooks, written per worktree\n");
+    body.push_str(ANTIGRAVITY_HOOK_REL);
+    body.push('\n');
+    body
+}
+
+/// Make sure `.agents/hooks.json` — which holds this machine's hook commands and
+/// workspace id, never meant to be shared — is ignored by the worktree's
+/// `.gitignore`. When no `.gitignore` covers it yet, append it to the
+/// worktree-root `.gitignore` (creating it if needed) and return a notice for
+/// the user, since that is a change to a tracked file they'll want to commit.
+///
+/// A `.gitignore` can't hide a file the repo already **tracks**; then return a
+/// warning instead when `warn_if_tracked` (spawn and switch — not every
+/// startup reconcile, which would re-raise a dismissed warning). Best-effort:
+/// git failures are logged and read as "nothing to report".
+pub fn ensure_antigravity_gitignored(work_dir: &Path, warn_if_tracked: bool) -> Option<String> {
+    let git = |args: &[&str]| crate::tools::command("git").current_dir(work_dir).args(args).output();
+    if git(&["ls-files", "--error-unmatch", "--", ANTIGRAVITY_HOOK_REL]).is_ok_and(|o| o.status.success()) {
+        tracing::warn!(dir = %work_dir.display(), "the repo tracks .agents/hooks.json; .gitignore can't keep our hooks out of commits");
+        return warn_if_tracked.then(|| {
+            "This repo tracks `.agents/hooks.json`, so mAIestro Code's Antigravity status hooks in it show up as a \
+             change in this worktree. Leave that change out of your commits."
+                .to_string()
+        });
+    }
+    match git(&["check-ignore", "-v", "--no-index", "--", ANTIGRAVITY_HOOK_REL]) {
+        Ok(o) if gitignore_covers(&String::from_utf8_lossy(&o.stdout)) => return None,
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, "couldn't run git check-ignore; not touching .gitignore");
+            return None;
+        }
+    }
+    let path = work_dir.join(".gitignore");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    if let Err(e) = std::fs::write(&path, gitignore_with_hook_line(&existing)) {
+        tracing::warn!(path = %path.display(), error = %e, "couldn't add .agents/hooks.json to .gitignore");
+        return Some(format!(
+            "Couldn't add `.agents/hooks.json` to this worktree's `.gitignore` ({e}). It holds mAIestro Code's \
+             local Antigravity status hooks; keep it out of your commits."
+        ));
+    }
+    tracing::info!(path = %path.display(), "added .agents/hooks.json to .gitignore");
+    Some(
+        "Added `.agents/hooks.json` to this worktree's `.gitignore`. It holds mAIestro Code's local Antigravity \
+         status hooks, which must never be committed. Commit the `.gitignore` change along with your work."
+            .to_string(),
+    )
+}
+
 // ── Codex: session-flag hooks through a stable wrapper ──────────────────────────
 
 /// Codex hook events → helper verbs. The same verbs as Claude's, with two gaps:
@@ -596,25 +696,13 @@ pub async fn codex_hooks_review_needed(repo: String, session_id: Option<String>)
     Ok(codex_hooks_need_review().await)
 }
 
-/// The generated files to keep out of git for a worktree running `agent`. The
-/// Antigravity hook file is added only for Antigravity worktrees: the exclude
-/// file is shared by the whole repo, and elsewhere `.agents/hooks.json` is the
-/// user's own.
-fn generated_file_patterns(agent: Agent) -> Vec<&'static str> {
-    let mut pats = vec![".claude/settings.local.json", ".vscode/"];
-    if agent == Agent::Antigravity {
-        pats.push(".agents/hooks.json");
-    }
-    pats
-}
-
 /// Append mAIestro Code's generated files to the worktree's shared git exclude file so
 /// they don't show up as untracked changes (which would trip teardown's
 /// `git status --porcelain` dirty check before the agent has run / in repos that
-/// don't already ignore them). Idempotent and best-effort. (An exclude can't hide
-/// changes to a *tracked* file: a repo that commits `.agents/hooks.json` sees our
-/// group as a modification in an Antigravity worktree.)
-async fn exclude_generated_files(work_dir: &Path, agent: Agent) {
+/// don't already ignore them). Idempotent and best-effort. Antigravity's
+/// `.agents/hooks.json` is handled by the worktree's `.gitignore` instead
+/// ([`ensure_antigravity_gitignored`]).
+async fn exclude_generated_files(work_dir: &Path) {
     // Worktrees share the main repo's exclude via the common git dir; resolve it
     // rather than assuming `<work_dir>/.git` is a directory (in a worktree it's a
     // file pointing elsewhere).
@@ -627,7 +715,7 @@ async fn exclude_generated_files(work_dir: &Path, agent: Agent) {
 
     let existing = std::fs::read_to_string(&exclude).unwrap_or_default();
     let mut to_add: Vec<&str> = Vec::new();
-    for pat in generated_file_patterns(agent) {
+    for pat in [".claude/settings.local.json", ".vscode/"] {
         if !existing.lines().any(|l| l.trim() == pat) {
             to_add.push(pat);
         }
@@ -897,11 +985,65 @@ mod tests {
         assert!(!path.exists());
     }
 
-    /// `.agents/hooks.json` is git-excluded only for Antigravity worktrees.
+    /// Only a `.gitignore` match counts — not `info/exclude` or a global
+    /// excludes file, and not a `!` negation.
     #[test]
-    fn antigravity_hook_file_is_excluded_only_for_antigravity() {
-        assert!(generated_file_patterns(Agent::Antigravity).contains(&".agents/hooks.json"));
-        assert!(!generated_file_patterns(Agent::Claude).contains(&".agents/hooks.json"));
-        assert!(!generated_file_patterns(Agent::Codex).contains(&".agents/hooks.json"));
+    fn gitignore_covers_reads_check_ignore_output() {
+        assert!(gitignore_covers(".gitignore:12:.agents/hooks.json\t.agents/hooks.json\n"));
+        assert!(gitignore_covers(".agents/.gitignore:1:hooks.json\t.agents/hooks.json\n"));
+        assert!(gitignore_covers(".gitignore:3:.agents/\t.agents/hooks.json\n"));
+        assert!(!gitignore_covers("/r/.git/info/exclude:7:.agents/hooks.json\t.agents/hooks.json\n"));
+        assert!(!gitignore_covers("/home/u/.config/git/ignore:1:.agents/\t.agents/hooks.json\n"));
+        assert!(!gitignore_covers(".gitignore:4:!.agents/hooks.json\t.agents/hooks.json\n"));
+        assert!(!gitignore_covers(""));
+    }
+
+    /// The line is appended on its own line, after a blank one, whatever the
+    /// file's trailing newline; an absent file gets just our block.
+    #[test]
+    fn gitignore_line_is_appended_cleanly() {
+        assert_eq!(gitignore_with_hook_line("node_modules"), "node_modules\n\n# mAIestro Code: local Antigravity status hooks, written per worktree\n.agents/hooks.json\n");
+        assert_eq!(gitignore_with_hook_line("a\n"), "a\n\n# mAIestro Code: local Antigravity status hooks, written per worktree\n.agents/hooks.json\n");
+        assert_eq!(gitignore_with_hook_line(""), "# mAIestro Code: local Antigravity status hooks, written per worktree\n.agents/hooks.json\n");
+    }
+
+    /// Against a real repo: the first call appends the line and returns a
+    /// notice, then git really ignores the file and a second call is silent. A
+    /// match in `info/exclude` alone doesn't count. A tracked file gets a warning
+    /// (only when asked for), and `.gitignore` is left alone.
+    #[test]
+    fn ensure_antigravity_gitignored_appends_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let git = |args: &[&str]| {
+            let o = std::process::Command::new("git").current_dir(repo).args(args).output().unwrap();
+            assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        };
+        git(&["init", "-q"]);
+        std::fs::write(repo.join(".gitignore"), "target/").unwrap();
+        std::fs::create_dir_all(repo.join(".git/info")).unwrap();
+        std::fs::write(repo.join(".git/info/exclude"), ".agents/hooks.json\n").unwrap();
+
+        let notice = ensure_antigravity_gitignored(repo, true).expect("appended");
+        assert!(notice.contains(".gitignore"), "{notice}");
+        let gi = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
+        assert!(gi.starts_with("target/\n") && gi.ends_with("\n.agents/hooks.json\n"), "{gi:?}");
+        assert!(ensure_antigravity_gitignored(repo, true).is_none(), "already covered");
+        assert_eq!(std::fs::read_to_string(repo.join(".gitignore")).unwrap(), gi, "no duplicate line");
+
+        // A repo that tracks the file: .gitignore can't help, so warn instead.
+        let tracked = tempfile::tempdir().unwrap();
+        let t = tracked.path();
+        let tgit = |args: &[&str]| {
+            let o = std::process::Command::new("git").current_dir(t).args(args).output().unwrap();
+            assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        };
+        tgit(&["init", "-q"]);
+        std::fs::create_dir_all(t.join(".agents")).unwrap();
+        std::fs::write(t.join(".agents/hooks.json"), "{}").unwrap();
+        tgit(&["add", ".agents/hooks.json"]);
+        assert!(ensure_antigravity_gitignored(t, true).unwrap().contains("tracks"));
+        assert!(ensure_antigravity_gitignored(t, false).is_none(), "reconcile doesn't re-warn");
+        assert!(!t.join(".gitignore").exists());
     }
 }
