@@ -32,7 +32,7 @@
       "type": ["string", "null"],
       "enum": ["claude", "codex", "antigravity", null],
       "default": "claude",
-      "description": "The coding agent repos use unless they choose their own: Claude Code, Codex CLI, or Antigravity CLI (`agy`). It runs the session in each spawned worktree and mAIestro Code's own AI drafting (issues, labels, PRs). Only the agent in use needs to be installed."
+      "description": "The agentic coding CLI repos use unless they choose their own. It runs the session in each spawned worktree and mAIestro Code's own AI drafting (issues, labels, PRs). Only the agentic coding CLI in use needs to be installed."
     },
     "tool_paths": {
       "type": ["object", "null"],
@@ -41,15 +41,15 @@
       "properties": {
         "claude": {
           "type": ["string", "null"],
-          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Claude in a spawned worktree's VS Code terminal, for repos whose agent is Claude. Leave empty to auto-detect."
+          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Claude in a spawned worktree's VS Code terminal, for repos whose agentic coding CLI is Claude Code. Leave empty to auto-detect."
         },
         "codex": {
           "type": ["string", "null"],
-          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Codex in a spawned worktree's VS Code terminal, for repos whose agent is Codex. Leave empty to auto-detect."
+          "description": "Used for AI drafting of issues, labels, and PRs, and to launch Codex in a spawned worktree's VS Code terminal, for repos whose agentic coding CLI is Codex CLI. Leave empty to auto-detect."
         },
         "agy": {
           "type": ["string", "null"],
-          "description": "The Antigravity CLI. Used for AI drafting of issues, labels, and PRs, and to launch Antigravity in a spawned worktree's VS Code terminal, for repos whose agent is Antigravity. Leave empty to auto-detect."
+          "description": "The Antigravity CLI. Used for AI drafting of issues, labels, and PRs, and to launch Antigravity in a spawned worktree's VS Code terminal, for repos whose agentic coding CLI is Antigravity CLI. Leave empty to auto-detect."
         },
         "git": {
           "type": ["string", "null"],

@@ -29,13 +29,13 @@ describe("SessionRow agent switch (#186)", () => {
   it("opens the agent picker from the command strip", () => {
     const onChooseAgent = vi.fn();
     render(<SessionRow {...props({ onChooseAgent })} />);
-    fireEvent.click(screen.getByRole("button", { name: "AI Agent…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agentic Coding CLI…" }));
     expect(onChooseAgent).toHaveBeenCalled();
   });
 
   it("is disabled while the workspace is being torn down", () => {
     render(<SessionRow {...props({ teardownBusy: true })} />);
-    expect(screen.getByRole("button", { name: "AI Agent…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Agentic Coding CLI…" })).toBeDisabled();
   });
 
   it("asks to restart a window still running the old agent", () => {

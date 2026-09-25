@@ -11,7 +11,7 @@
     },
     "identity_id": {
       "type": ["string", "null"],
-      "description": "Identity used for credentials and agent spawning for this repo."
+      "description": "Identity used for credentials and launching the agentic coding CLI for this repo."
     },
     "cloned_repo_dir": {
       "type": ["string", "null"],
@@ -46,12 +46,12 @@
     "agent": {
       "type": ["string", "null"],
       "enum": ["claude", "codex", "antigravity", null],
-      "description": "The coding agent for this repo: Claude Code, Codex CLI, or Antigravity CLI (`agy`). Used for the session in each spawned worktree and for mAIestro Code's own drafting (issues, labels, PRs). null = use the global default. An existing worktree keeps the agent it was spawned with."
+      "description": "The agentic coding CLI for this repo. Used for the session in each spawned worktree and for mAIestro Code's own drafting (issues, labels, PRs). null = use the global default. An existing worktree keeps the agentic coding CLI it was spawned with."
     },
     "prompt_models": {
       "type": ["object", "null"],
       "title": "PromptModels",
-      "description": "Which model runs mAIestro Code's own drafting prompts (issue, label, PR), per agent. Only the entry for the repo's agent is used.",
+      "description": "Which model runs mAIestro Code's own drafting prompts (issue, label, PR), per agentic coding CLI. Only the entry for the repo's agentic coding CLI is used.",
       "properties": {
         "claude": {
           "type": ["string", "null"],
@@ -84,7 +84,7 @@
     "prompts": {
       "type": ["object", "null"],
       "title": "PromptOverrides",
-      "description": "Per-repo overrides for the instructions sent to the repo's agent. Each field empty/null uses the built-in default. The runtime context (your idea, the issue, the diff) is appended automatically and is not part of these overrides.",
+      "description": "Per-repo overrides for the instructions sent to the repo's agentic coding CLI. Each field empty/null uses the built-in default. The runtime context (your idea, the issue, the diff) is appended automatically and is not part of these overrides.",
       "properties": {
         "draft_issue": {
           "type": ["string", "null"],
