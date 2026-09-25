@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod about;
+mod agent;
 mod app_settings;
 mod credentials;
 mod drafting;

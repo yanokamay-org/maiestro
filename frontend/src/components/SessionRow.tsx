@@ -1,7 +1,7 @@
 import { PrChecks, PrLink, Session, StatusRecord } from "../api";
 import { accentColor, checkLabel, PR_STATE_ICONS, PrOpenIcon } from "../lib/lifecycle";
 import { effectiveHidden, formatSnoozeRemaining } from "../lib/snooze";
-import { ClaudePill } from "./ClaudePill";
+import { AgentPill } from "./AgentPill";
 import { DismissibleError } from "./DismissibleError";
 import { HideCommandButton, SnoozeLabel } from "./HideControls";
 import GitHubIcon from "../icons/github.svg?react";
@@ -61,7 +61,7 @@ export function SessionRow({
   // While the worktree is still being built in the background (issue #77),
   // actions that need it to exist are disabled.
   const creating = status?.state === "creating";
-  // Only surfaced errors render; pending/transient ones (Claude may still
+  // Only surfaced errors render; pending/transient ones (the agent may still
   // recover) stay hidden until promoted (issue #48).
   const toolErr = status?.last_error?.surfaced ? status.last_error : undefined;
   const PrIcon = pr ? (PR_STATE_ICONS[pr.state] ?? PrOpenIcon) : null;
@@ -82,7 +82,7 @@ export function SessionRow({
         : teardownBusy
           ? "Tearing down…"
           : null;
-  // Request id of the in-flight op (if it can run Claude), so the op-pill glows
+  // Request id of the in-flight op (if it can run the agent), so the op-pill glows
   // rainbow only while that AI call is active. Teardown is pure git, so none.
   const opRequestId = prc?.creating
     ? prc.requestId
@@ -92,7 +92,7 @@ export function SessionRow({
   return (
     <div className={`workspace-item ${sessHidden || repoHidden ? "workspace-item--hidden" : ""}`}>
       <div className="workspace-row" style={{ borderLeft: `3px solid ${accentColor(s.color)}` }}>
-        <ClaudePill status={status} onClick={() => { if (!creating) onOpenInEditor(); }} />
+        <AgentPill agent={s.agent ?? "claude"} status={status} onClick={() => { if (!creating) onOpenInEditor(); }} />
         <span className="workspace-title">{s.session_title}</span>
         {opLabel && <span className={`workspace-op-pill ${busyRingCls(opRequestId)}`}>{opLabel}</span>}
         {sessHidden && (

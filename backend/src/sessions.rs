@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::Agent;
 use crate::repo_settings::HideState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +33,12 @@ pub struct Session {
     /// Title-bar background color (hex).
     pub color: String,
     pub emoji: String,
+    /// The coding agent this session was spawned with (issue #162). Stored at
+    /// spawn and read back on reopen, like `color`, so changing the repo's agent
+    /// later never switches an existing worktree to the other one. Records
+    /// written before the field existed load as Claude.
+    #[serde(default)]
+    pub agent: Agent,
     /// Hide/snooze state for this work item. `None` = visible. Snooze expiry is
     /// resolved on the frontend at render time.
     #[serde(default)]
@@ -99,4 +106,20 @@ pub fn session_set_visibility(session_id: String, hidden: Option<HideState>) -> 
     let mut session = get(&session_id).ok_or_else(|| format!("session not found: {session_id}"))?;
     session.hidden = hidden;
     save(&session).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A record written before #162 has no `agent` and still loads, as Claude.
+    #[test]
+    fn old_record_loads_as_claude() {
+        let old = serde_json::json!({
+            "id": "1-x", "repo": "a/b", "issue_number": 1, "issue_url": "u", "branch": "feature/1-x",
+            "work_dir": "/w", "cloned_repo_dir": "/c", "session_title": "t", "color": "#fff", "emoji": "e"
+        });
+        let s: Session = serde_json::from_value(old).unwrap();
+        assert_eq!(s.agent, Agent::Claude);
+    }
 }

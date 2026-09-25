@@ -21,4 +21,12 @@ describe("extractAppFormDefaults", () => {
     ).toBe("");
     expect(extractAppFormDefaults({}).terminalFontDefault).toBe("");
   });
+
+  // The Agent control selects the schema default when the setting is null; an
+  // unknown or missing default degrades to Claude (the pre-#162 behavior).
+  it("reads the agent default, falling back to claude", () => {
+    expect(extractAppFormDefaults({ properties: { agent: { default: "codex" } } }).agentDefault).toBe("codex");
+    expect(extractAppFormDefaults({ properties: { agent: { default: "gemini" } } }).agentDefault).toBe("claude");
+    expect(extractAppFormDefaults({}).agentDefault).toBe("claude");
+  });
 });

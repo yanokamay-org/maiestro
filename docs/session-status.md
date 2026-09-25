@@ -17,7 +17,30 @@ Crucially, **not every failure is shown.** Claude often recovers from a transien
 - A new turn or session (`UserPromptSubmit`→`prompt`, `SessionStart`→`running`) *clears* it. (This is why `UserPromptSubmit` maps through its own `prompt` verb rather than sharing `busy`.)
 - Every other event *carries it forward*.
 
-The popover shows a *surfaced* `last_error` as a dismissible inline block (the same `.cleanup-confirm` pattern PR-create errors use, never a tooltip) and tints the Claude pill red; a pending one stays hidden. The **Dismiss** button calls the `clear_session_error` command, which rewrites the record without `last_error` so it doesn't reappear on reopen. The exact error field in the `PostToolUseFailure` payload isn't pinned down in the docs, so `extract_error_message` reads several likely fields in order and falls back to a generic message. Because `reconcile_all_session_hooks` rebuilds hook commands from `maiestro_hook_groups` on every startup, a change to the hook set or its verbs reaches already-spawned worktrees on the next app launch, no re-spawn needed.
+The popover shows a *surfaced* `last_error` as a dismissible inline block (the same `.cleanup-confirm` pattern PR-create errors use, never a tooltip) and tints the agent pill red; a pending one stays hidden. The **Dismiss** button calls the `clear_session_error` command, which rewrites the record without `last_error` so it doesn't reappear on reopen. The exact error field in the `PostToolUseFailure` payload isn't pinned down in the docs, so `extract_error_message` reads several likely fields in order and falls back to a generic message. Because `reconcile_all_session_hooks` rebuilds hook commands from `maiestro_hook_groups` on every startup, a change to the hook set or its verbs reaches already-spawned worktrees on the next app launch, no re-spawn needed.
 
 The whole mechanism is event-driven and last-write-wins, assuming one session per worktree (keyed by `<ws-id>`, which equals `Session.id`). Generated files (`.claude/settings.local.json`, `.vscode/`) are added to the worktree's shared git exclude (`$(git rev-parse --git-common-dir)/info/exclude`) so they don't trip teardown's `git status --porcelain` dirty check before Claude has run.
 
+## Codex sessions
+
+A repo whose agent is Codex (issue #162) gets the same status helper and verbs, delivered differently, because of how Codex trusts hooks.
+
+**Why not a per-worktree hook file.** Codex runs a non-managed hook only after the user reviews it, and records that approval in `~/.codex/config.toml` as `hooks.state."<key>".trusted_hash` — the key names the hook's source and position, the hash covers its exact definition. A per-worktree `.codex/hooks.json` with a `--workspace <id>` in each command would be a *new* hook to Codex on every spawn, so every workspace would need its own review. (It also doesn't load at all: `hooks/list` on the app-server shows zero hooks for a spawned worktree's `.codex/hooks.json`, even with the folder trusted.)
+
+**What we do instead.** The hooks ride on the launch command as `-c hooks.<Event>=[…]` session-flag overrides (`hooks::codex_hook_overrides`, added to the VS Code task by `editor::session_command`). Session-flag hooks have trust keys with no folder path in them (`/<session-flags>/config.toml:stop:0:0`), and every command is identical for every worktree: it runs a **stable wrapper**, `~/.maiestro/bin/maiestro-hook <verb>`, with no workspace id. So the definitions, and their hashes, never change. We checked this with the app-server's `hooks/list`: the key and hash are the same in every folder, and one stored approval marks them trusted everywhere. The helper finds the session from the payload's `cwd` instead (`status::workspace_for_cwd`: the tracked worktree that contains it, deepest match first). A `cwd` in no tracked worktree records nothing. The wrapper is a two-line `sh` script that execs the running mAIestro Code binary's `hook` subcommand. Spawn, reopen and startup reconcile rewrite its *contents* (`hooks::ensure_hook_wrapper`), never the hook definitions, so an app update or a `tauri dev` rebuild never invalidates the user's approval. Nothing is written into the worktree or into `~/.codex/`.
+
+**One-time trust.** The first time a Codex session starts with these hooks, Codex warns that hooks need review. Open `/hooks` and use **trust all** once. Codex saves the approval itself, and it covers every later workspace. mAIestro Code never writes the approval for you and never passes `--dangerously-bypass-hook-trust`, which would also run any hooks a cloned repo ships in its own `.codex/`.
+
+| Codex event | verb |
+|---|---|
+| `SessionStart` | `running` |
+| `UserPromptSubmit` | `prompt` |
+| `PreToolUse` | `busy` |
+| `PostToolUse` | `tool_ok` |
+| `PermissionRequest` | `notification` |
+| `Stop` | `idle` |
+| `SessionEnd` | `ended` |
+
+- **No `last_error` for Codex.** Codex has no `PostToolUseFailure` event, so a Codex session never gets a failed-tool error or a red pill. This is documented, not emulated (no parsing of `PostToolUse` responses).
+- **`PermissionRequest` stands in for `Notification`.** Codex has no `Notification` event. Its `PermissionRequest` payload carries `tool_name`/`tool_input` but no `message`, so `resolve_state` falls back to a detail of ``Permission requested: `<tool_name>` `` for the pill's tooltip.
+- **Drafting doesn't report status.** mAIestro Code's own `codex exec` drafting calls run with `--disable hooks`, so a PR draft run inside a Codex worktree doesn't flip the session's pill.

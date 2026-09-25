@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, AppSettings, AppVersion, CredentialScope, CredentialTypeDto, GHRepo, HealthCheck, RepoSettings, ResolvedTool } from "./api";
+import { Agent, api, AppSettings, AppVersion, CredentialScope, CredentialTypeDto, GHRepo, HealthCheck, RepoSettings, ResolvedTool } from "./api";
 import { JsonForms } from "@jsonforms/react";
 import {
   repoSettingsRenderers,
@@ -113,7 +113,7 @@ export function Settings() {
   const [appSaveError, setAppSaveError] = useState<string | null>(null);
   // How each directly-invoked CLI currently resolves, for the Tool paths status line.
   const [resolvedTools, setResolvedTools] = useState<ResolvedTool[]>([]);
-  const [appFormDefaults, setAppFormDefaults] = useState<AppFormDefaults>({ terminalFontDefault: "" });
+  const [appFormDefaults, setAppFormDefaults] = useState<AppFormDefaults>({ terminalFontDefault: "", agentDefault: "claude" });
   // Version + build metadata for the About block under the Preferences form
   // (#126). Read-only, so a failed fetch just hides the block.
   const [appVersion, setAppVersion] = useState<AppVersion | null>(null);
@@ -277,17 +277,23 @@ export function Settings() {
 
   // Extra data the custom renderers (identity select, env-files Scan) read via
   // JsonForms' `config`. Memoized so the form isn't needlessly re-keyed.
+  // The global agent a repo with no `agent` of its own falls back to; the repo
+  // form names it and picks which drafting-model entry to edit from it.
+  const globalAgent: Agent = appSettings?.agent ?? appFormDefaults.agentDefault;
+  const repoAgent: Agent = loadedRepo?.settings.agent ?? globalAgent;
   const repoFormConfig = useMemo(
     () => ({
       showUnfocusedDescription: true as const,
       knownIdentities,
       clonedRepoDir: loadedRepo?.settings.cloned_repo_dir ?? null,
       worktreePrefixDefault: repoFormDefaults?.worktreePrefixDefault ?? "",
-      promptModelDefault: repoFormDefaults?.promptModelDefault ?? "",
+      promptModelDefaults: repoFormDefaults?.promptModelDefaults ?? { claude: "", codex: "" },
+      globalAgent,
+      repoAgent,
       booleanDefaults: repoFormDefaults?.booleanDefaults ?? {},
       promptDefaults: repoFormDefaults?.promptDefaults ?? {},
     }),
-    [knownIdentities, loadedRepo?.settings.cloned_repo_dir, repoFormDefaults],
+    [knownIdentities, loadedRepo?.settings.cloned_repo_dir, repoFormDefaults, globalAgent, repoAgent],
   );
 
   // Config the app-settings custom renderers read (the Tool paths status line,

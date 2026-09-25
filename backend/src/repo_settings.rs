@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
+use crate::agent::Agent;
+
 /// Hide/snooze state for a repo or a work item. The presence of this value means
 /// "hidden"; its absence means "visible".
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,7 +14,7 @@ pub struct HideState {
     pub snooze_until: Option<i64>,
 }
 
-/// Per-repo overrides for the instructions mAIestro Code sends to Claude. Each field
+/// Per-repo overrides for the instructions mAIestro Code sends to the repo's agent. Each field
 /// `None`/empty uses the built-in default (see `prompts.rs`). The runtime
 /// context (idea, issue, diff) is appended automatically and is not part of
 /// these overrides.
@@ -27,6 +29,18 @@ pub struct PromptOverrides {
     /// Instruction for drafting a pull request description from the diff.
     #[serde(default)]
     pub draft_pr: Option<String>,
+}
+
+/// The model for mAIestro Code's own drafting calls, one entry per agent (only
+/// the effective agent's entry is used). `None`/empty uses that entry's schema
+/// `default` — `haiku` for Claude, and for Codex no `--model` at all (Codex's
+/// own configured default). See `crate::prompts::model`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PromptModels {
+    #[serde(default)]
+    pub claude: Option<String>,
+    #[serde(default)]
+    pub codex: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,13 +78,16 @@ pub struct RepoSettings {
     /// schema default (on). Does not affect issue assignment.
     #[serde(default)]
     pub comment_on_spawn: Option<bool>,
-    /// Which Claude model runs mAIestro Code's own programmatic prompts (draft_issue,
-    /// short_label, draft_pr) via the headless `claude -p` calls. `None`/empty
-    /// uses the schema default (`haiku`). A `claude --model` tier alias, not a
-    /// pinned id, so it tracks the latest model in that tier. Applies only to
-    /// these drafting calls, never to the launched worktree session.
+    /// The coding agent for this repo. `None` uses the global `agent` setting,
+    /// then the app schema default — see [`effective_agent`].
     #[serde(default)]
-    pub prompt_model: Option<String>,
+    pub agent: Option<Agent>,
+    /// Which model runs mAIestro Code's own programmatic prompts (draft_issue,
+    /// short_label, draft_pr), per agent. Applies only to these drafting calls,
+    /// never to the launched worktree session. Replaces the older single
+    /// `prompt_model` (a `claude --model` alias), migrated in `parse_and_validate`.
+    #[serde(default)]
+    pub prompt_models: PromptModels,
     /// Repo-level hide/snooze state. `None` = visible. A hidden repo hides its
     /// work items too. Per-work-item state lives on the session record, not here.
     #[serde(default)]
@@ -94,7 +111,8 @@ impl RepoSettings {
             post_spawn_commands: Vec::new(),
             delete_remote_on_teardown: None,
             comment_on_spawn: None,
-            prompt_model: None,
+            agent: None,
+            prompt_models: PromptModels::default(),
             hidden: None,
             prompts: PromptOverrides::default(),
         }
@@ -138,6 +156,15 @@ pub fn bool_or_default(configured: Option<bool>, pointer: &str) -> bool {
     configured.unwrap_or_else(|| schema_default_bool(pointer))
 }
 
+/// The agent a repo uses: its own `agent`, else the global `agent` setting, else
+/// the app schema `default`. **Every** AI call site (drafting, the PR draft, the
+/// health probe) and a fresh spawn resolve the agent through here — none of them
+/// assumes `claude`. A spawned session records the result, so reopening reads
+/// the record instead (see `sessions::Session::agent`).
+pub fn effective_agent(settings: &RepoSettings) -> Agent {
+    settings.agent.unwrap_or_else(crate::app_settings::agent)
+}
+
 /// Validate a settings JSON value against the embedded schema. Returns a message
 /// naming the failing field(s) on error.
 fn validate_against_schema(value: &serde_json::Value) -> Result<(), String> {
@@ -177,10 +204,28 @@ fn load_validated(repo: &str) -> Result<RepoSettings, String> {
 /// the source (a file path) in error messages. Split out from `load_validated`
 /// so the validation behavior is unit-testable without touching the filesystem.
 fn parse_and_validate(data: &str, label: &str) -> Result<RepoSettings, String> {
-    let value: serde_json::Value = serde_json::from_str(data)
+    let mut value: serde_json::Value = serde_json::from_str(data)
         .map_err(|e| format!("{label} is not valid JSON: {e}"))?;
+    migrate_prompt_model(&mut value);
     validate_against_schema(&value).map_err(|msg| format!("{label} failed validation — {msg}"))?;
     serde_json::from_value(value).map_err(|e| format!("{label} does not match RepoSettings: {e}"))
+}
+
+/// Carry a pre-#162 `prompt_model` (a `claude --model` alias) over to
+/// `prompt_models.claude`, so a custom drafting model isn't lost when the field
+/// was split per agent. An explicit `prompt_models.claude` wins. The old key is
+/// dropped from the value, so the next save writes only the new shape.
+fn migrate_prompt_model(value: &mut serde_json::Value) {
+    let Some(obj) = value.as_object_mut() else { return };
+    let Some(old) = obj.remove("prompt_model") else { return };
+    let Some(old) = old.as_str().map(str::trim).filter(|s| !s.is_empty()) else { return };
+    let models = obj.entry("prompt_models").or_insert(serde_json::Value::Null);
+    if !models.is_object() {
+        *models = serde_json::json!({});
+    }
+    if models["claude"].as_str().is_none_or(|s| s.trim().is_empty()) {
+        models["claude"] = serde_json::Value::String(old.to_string());
+    }
 }
 
 fn save(repo: &str, settings: &RepoSettings) -> std::io::Result<()> {
@@ -343,20 +388,58 @@ mod tests {
         assert!(v.get("properties").is_some(), "schema must declare properties");
     }
 
-    /// `prompt_model`'s help text names its default ("…the default (haiku)") so
-    /// the Settings form doesn't make the user go look it up. That is a second
-    /// copy of the value, so pin it: changing the `default` without rewording the
-    /// `description` fails here rather than shipping a form that lies.
+    /// `prompt_models.claude`'s help text names its default ("…the default
+    /// (haiku)") so the Settings form doesn't make the user go look it up. That is
+    /// a second copy of the value, so pin it: changing the `default` without
+    /// rewording the `description` fails here rather than shipping a form that lies.
     #[test]
     fn prompt_model_help_names_its_default() {
         let schema = schema_value();
-        let prop = &schema["properties"]["prompt_model"];
-        let default = prop["default"].as_str().expect("prompt_model declares a default");
-        let description = prop["description"].as_str().expect("prompt_model is described");
+        let prop = &schema["properties"]["prompt_models"]["properties"]["claude"];
+        let default = prop["default"].as_str().expect("prompt_models.claude declares a default");
+        let description = prop["description"].as_str().expect("prompt_models.claude is described");
         assert!(
             description.contains(&format!("({default})")),
-            "prompt_model's description must name its default `{default}`, but reads: {description}"
+            "prompt_models.claude's description must name its default `{default}`, but reads: {description}"
         );
+    }
+
+    /// A pre-#162 file's custom `prompt_model` is read once as
+    /// `prompt_models.claude`; an explicit new-shape value wins; a blank one is
+    /// just dropped. Every other field is untouched.
+    #[test]
+    fn legacy_prompt_model_migrates_to_claude_entry() {
+        let s = parse_and_validate(&json!({ "repo": "a/b", "prompt_model": "sonnet" }).to_string(), "t").unwrap();
+        assert_eq!(s.prompt_models.claude.as_deref(), Some("sonnet"));
+        assert!(s.prompt_models.codex.is_none());
+        assert_eq!(s.repo, "a/b");
+
+        let s = parse_and_validate(
+            &json!({ "prompt_model": "sonnet", "prompt_models": { "claude": "opus" } }).to_string(),
+            "t",
+        )
+        .unwrap();
+        assert_eq!(s.prompt_models.claude.as_deref(), Some("opus"));
+
+        let s = parse_and_validate(&json!({ "prompt_model": "" }).to_string(), "t").unwrap();
+        assert!(s.prompt_models.claude.is_none());
+
+        // The migrated shape is what gets written back.
+        let v = serde_json::to_value(parse_and_validate(&json!({ "prompt_model": "sonnet" }).to_string(), "t").unwrap()).unwrap();
+        assert!(v.get("prompt_model").is_none());
+        assert_eq!(v["prompt_models"]["claude"], "sonnet");
+    }
+
+    /// The repo's own agent wins over the global one; unset falls through.
+    #[test]
+    fn effective_agent_prefers_the_repo_value() {
+        let _home = TempHome::new();
+        let mut s = RepoSettings::default_for("a/b");
+        assert_eq!(effective_agent(&s), Agent::Claude, "schema default");
+        crate::app_settings::update(|a| a.agent = Some(Agent::Codex)).unwrap();
+        assert_eq!(effective_agent(&s), Agent::Codex, "global setting");
+        s.agent = Some(Agent::Claude);
+        assert_eq!(effective_agent(&s), Agent::Claude, "repo override");
     }
 
     /// Drift guard: the hand-written schema and the Rust struct must describe the
@@ -385,7 +468,8 @@ mod tests {
             post_spawn_commands: vec!["pnpm install".into()],
             delete_remote_on_teardown: Some(false),
             comment_on_spawn: Some(false),
-            prompt_model: Some("sonnet".into()),
+            agent: Some(Agent::Codex),
+            prompt_models: PromptModels { claude: Some("sonnet".into()), codex: Some("gpt-5-codex".into()) },
             hidden: Some(HideState { snooze_until: Some(1_717_372_800_000) }),
             prompts: PromptOverrides {
                 draft_issue: Some("Custom issue instruction".into()),

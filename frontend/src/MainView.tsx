@@ -65,17 +65,17 @@ export function MainView() {
   const [teardownBusy, setTeardownBusy] = useState<Record<string, boolean>>({});
   // Create-PR progress/error per session id: `{ creating }` while in flight,
   // `{ error }` after a failure. Absent = idle. `requestId` correlates
-  // `claude-activity` events to this action's busy glow.
+  // `agent-activity` events to this action's busy glow.
   const [prCreate, setPrCreate] = useState<Record<string, PrCreateState>>({});
   // PR check status per session id, polled from GitHub while the popover is open.
   // Absent = not yet fetched; null = no open PR (or lookup failed).
   const [prChecks, setPrChecks] = useState<Record<string, PrChecks | null>>({});
   // Merge-PR state per session id. `intent` keeps the auto-merge watcher armed
   // until the PR lands; `merging` guards against overlapping merge attempts.
-  // `requestId` correlates `claude-activity` events (the merge drafts the PR
-  // via Claude when none exists yet) to this action's busy glow.
+  // `requestId` correlates `agent-activity` events (the merge drafts the PR
+  // via the agent when none exists yet) to this action's busy glow.
   const [prMerge, setPrMerge] = useState<Record<string, PrMergeState>>({});
-  // Request ids with a Claude call currently in flight (`claude-activity`
+  // Request ids with an agent call currently in flight (`agent-activity`
   // events). A busy button whose request id is here glows rainbow instead of
   // the monochrome sweep; absent = plain. Missed events degrade to monochrome.
   const [aiActive, setAiActive] = useState<Record<string, boolean>>({});
@@ -191,10 +191,10 @@ export function MainView() {
     });
   });
 
-  // Live Claude-call signal from the backend: while a request id is active its
+  // Live agent-call signal from the backend: while a request id is active its
   // button's busy glow turns rainbow (AI), reverting to the monochrome sweep
   // when the call ends — so mixed script/AI actions change color mid-flight.
-  useTauriListen<{ request_id: string; active: boolean }>("claude-activity", ({ request_id, active }) => {
+  useTauriListen<{ request_id: string; active: boolean }>("agent-activity", ({ request_id, active }) => {
     setAiActive((prev) => {
       if (!active) {
         const { [request_id]: _drop, ...rest } = prev;
@@ -204,14 +204,14 @@ export function MainView() {
     });
   });
 
-  // Busy classes for a button whose backend command can run Claude: rainbow
-  // while its request id has a Claude call in flight, monochrome otherwise.
+  // Busy classes for a button whose backend command can run the agent: rainbow
+  // while its request id has an agent call in flight, monochrome otherwise.
   const busyCls = (requestId?: string) =>
     requestId && aiActive[requestId] ? "btn-busy btn-busy--ai" : "btn-busy";
 
   // Busy-ring classes for the row's "working" pill: rainbow (AI) while the
-  // operation's Claude call is in flight, single-hue (non-AI) otherwise — so a
-  // Create PR glows rainbow while Claude drafts the body, then reverts for the
+  // operation's agent call is in flight, single-hue (non-AI) otherwise — so a
+  // Create PR glows rainbow while the agent drafts the body, then reverts for the
   // git push/merge. Teardown passes no request id and stays monochrome.
   const busyRingCls = (requestId?: string) =>
     requestId && aiActive[requestId] ? "busy-ring busy-ring--ai" : "busy-ring";
@@ -309,14 +309,14 @@ export function MainView() {
       // name field until the AI suggestion lands (or the call fails).
       setPicker((p) => (p ? { ...p, preparing: undefined, note: undefined, preview: { ...planToPreview(plan, "spawn"), suggesting: true } } : p));
       // Fire-and-forget: upgrade the heuristic label to an AI suggestion once
-      // Claude replies. The preview is already open and usable meanwhile.
+      // the agent replies. The preview is already open and usable meanwhile.
       void suggestLabel(repo, node.number, plan.short_title);
     } catch (e) {
       setPicker((p) => (p ? { ...p, preparing: undefined, note: `Failed to prepare #${node.number}: ${String(e)}` } : p));
     }
   }
 
-  // Swap the spawn preview's short label for Claude's suggestion — only if the
+  // Swap the spawn preview's short label for the agent's suggestion — only if the
   // preview is still open for this same issue and the field still holds the
   // heuristic value (the user hasn't typed). Failures are silent: the
   // heuristic label is a fine fallback.
@@ -419,7 +419,7 @@ export function MainView() {
   }
 
   // Idea → AI draft → preview (issue isn't opened until confirm). `mode` picks
-  // create-only vs. spawn; `raw` skips Claude's clarity gate on a retry.
+  // create-only vs. spawn; `raw` skips the agent's clarity gate on a retry.
   async function draftIdea(mode: "create" | "spawn", idea: string, raw = false) {
     if (!picker) return;
     const repo = picker.repo;
@@ -435,14 +435,14 @@ export function MainView() {
     }
   }
 
-  // User chose to proceed from their raw text despite Claude's prompt. Repeats
+  // User chose to proceed from their raw text despite the agent's reply. Repeats
   // whichever action raised it, landing on its preview built from the raw text.
   function confirmRaw() {
     if (!picker?.confirm) return;
     draftIdea(picker.confirm.action, picker.confirm.idea, true);
   }
 
-  // "Create PR": push the branch, draft a description with Claude, and open a
+  // "Create PR": push the branch, draft a description with the agent, and open a
   // draft PR. On success the PR pill refreshes to link the new PR (we don't
   // open it in the browser — the pill is the entry point).
   async function createPr(s: Session) {

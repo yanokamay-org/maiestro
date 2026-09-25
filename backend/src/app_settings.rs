@@ -58,6 +58,10 @@ pub struct ToolPaths {
     /// Path to the `claude` CLI (AI drafting). `None`/empty = auto-resolve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude: Option<String>,
+    /// Path to the `codex` CLI (AI drafting and sessions for Codex repos).
+    /// `None`/empty = auto-resolve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<String>,
     /// Path to `git` (worktree add, branch checks). `None`/empty = auto-resolve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<String>,
@@ -97,6 +101,10 @@ pub struct AppSettings {
     /// Chosen UI theme. `None` (absent) means `System`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<Theme>,
+    /// The default coding agent for repos that don't pick their own (issue
+    /// #162). `None` (absent) means the schema `default`. See [`agent`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<crate::agent::Agent>,
     /// Per-tool CLI path overrides. `None` (absent) means all tools auto-resolve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_paths: Option<ToolPaths>,
@@ -122,17 +130,28 @@ pub struct AppSettings {
 }
 
 /// The user's explicit path override for a directly-invoked tool
-/// (`claude`/`git`/`code`), if set and non-empty. Read by `crate::tools`. An
+/// (`claude`/`codex`/`git`/`code`), if set and non-empty. Read by `crate::tools`. An
 /// unknown tool name or an empty/whitespace value yields `None` (auto-resolve).
 pub fn tool_path_override(name: &str) -> Option<String> {
     let tp = load().tool_paths?;
     let v = match name {
         "claude" => tp.claude,
+        "codex" => tp.codex,
         "git" => tp.git,
         "code" => tp.code,
         _ => None,
     };
     v.filter(|s| !s.trim().is_empty())
+}
+
+/// The global default agent: the user's `agent` setting, else the schema
+/// `default` — the single source of truth for it, so no Rust literal decides
+/// which agent an unconfigured install uses. Per-repo resolution layers on top
+/// of this in `repo_settings::effective_agent`.
+pub fn agent() -> crate::agent::Agent {
+    load().agent.unwrap_or_else(|| {
+        crate::agent::Agent::parse(&schema_default("/properties/agent/default")).unwrap_or_default()
+    })
 }
 
 /// The font stack to write as `terminal.integrated.fontFamily` into a spawned
@@ -294,8 +313,8 @@ pub fn app_settings_problem() -> Option<SettingsProblem> {
 }
 
 /// Persist the settings edited in the Settings form. The form owns only the
-/// user-editable fields (`theme`, `tool_paths`, `terminal_font_family`,
-/// `launch_at_login`); the machine-managed window sizes, onboarding flag, and
+/// user-editable fields (`theme`, `agent`, `tool_paths`,
+/// `terminal_font_family`, `launch_at_login`); the machine-managed window sizes, onboarding flag, and
 /// update-check state are load-merged from disk so a concurrent save from
 /// another window or the update checker isn't clobbered. Validates before writing, and broadcasts `theme-changed` when the
 /// theme actually changed so every window re-applies live.
@@ -320,6 +339,7 @@ pub fn app_settings_set(app: tauri::AppHandle, settings: AppSettings) -> Result<
     update(|current| {
         theme_changed = current.theme != settings.theme;
         current.theme = settings.theme;
+        current.agent = settings.agent;
         current.tool_paths = settings.tool_paths.clone();
         current.terminal_font_family = settings.terminal_font_family.clone();
         current.launch_at_login = settings.launch_at_login;
@@ -501,8 +521,10 @@ mod tests {
             window: Some(WindowSize { width: 680.0, height: 460.0 }),
             settings_window: Some(WindowSize { width: 720.0, height: 520.0 }),
             theme: Some(Theme::Dark),
+            agent: Some(crate::agent::Agent::Codex),
             tool_paths: Some(ToolPaths {
                 claude: Some("/opt/homebrew/bin/claude".into()),
+                codex: Some("/opt/homebrew/bin/codex".into()),
                 git: Some("/opt/homebrew/bin/git".into()),
                 code: Some("/usr/local/bin/code".into()),
             }),
@@ -578,6 +600,17 @@ mod tests {
         assert_eq!(saved, json!({ "theme": "light" }));
     }
 
+    /// The schema default agent is Claude, so an install that never picked one
+    /// behaves exactly as before #162.
+    #[test]
+    fn agent_defaults_to_the_schema_default() {
+        let _home = crate::testutil::TempHome::new();
+        assert_eq!(agent(), crate::agent::Agent::Claude);
+        assert_eq!(schema_default("/properties/agent/default"), "claude");
+        update(|s| s.agent = Some(crate::agent::Agent::Codex)).unwrap();
+        assert_eq!(agent(), crate::agent::Agent::Codex);
+    }
+
     /// A partial file (only `theme`) validates — every field is optional.
     #[test]
     fn partial_file_validates() {
@@ -607,7 +640,7 @@ mod tests {
     /// An empty/whitespace override reads as "auto-resolve" (None).
     #[test]
     fn blank_override_is_none() {
-        let tp = ToolPaths { claude: Some("  ".into()), git: Some("".into()), code: None };
+        let tp = ToolPaths { claude: Some("  ".into()), codex: None, git: Some("".into()), code: None };
         // Exercise the same filter `tool_path_override` applies.
         assert!(tp.claude.as_deref().filter(|s| !s.trim().is_empty()).is_none());
         assert!(tp.git.as_deref().filter(|s| !s.trim().is_empty()).is_none());

@@ -19,7 +19,8 @@ import {
 } from "@jsonforms/core";
 import { withJsonFormsControlProps } from "@jsonforms/react";
 import { vanillaRenderers, vanillaCells } from "@jsonforms/vanilla-renderers";
-import { api } from "./api";
+import { Agent, api } from "./api";
+import { AGENTS, AGENT_PRODUCTS, asAgent } from "./lib/agents";
 import { PathField, RevealButton, usePathExists } from "./PathField";
 import { ToggleSwitch } from "./components/ToggleSwitch";
 
@@ -35,7 +36,8 @@ export const repoSettingsUISchema = {
     { type: "Control", scope: "#/properties/post_spawn_commands", label: "Post-spawn commands" },
     { type: "Control", scope: "#/properties/comment_on_spawn", label: "Comment on the issue when spawning" },
     { type: "Control", scope: "#/properties/delete_remote_on_teardown", label: "Delete remote branch on teardown" },
-    { type: "Control", scope: "#/properties/prompt_model", label: "Prompt model" },
+    { type: "Control", scope: "#/properties/agent", label: "Agent" },
+    { type: "Control", scope: "#/properties/prompt_models", label: "Prompt model" },
     { type: "Control", scope: "#/properties/prompts" },
   ],
 } as unknown as UISchemaElement;
@@ -48,6 +50,14 @@ export interface RepoFormConfig {
   clonedRepoDir: string | null;
   /** Always show schema descriptions as help text, not only on focus. */
   showUnfocusedDescription: true;
+  /** The global `agent` (Preferences, else its schema default) — what a repo
+   *  whose own `agent` is null uses. Named in the "Use global default" option. */
+  globalAgent: Agent;
+  /** This repo's effective agent (its own, else `globalAgent`): picks which
+   *  `prompt_models` entry the Prompt model field edits. */
+  repoAgent: Agent;
+  /** Each agent's drafting-model schema default ("" = none). */
+  promptModelDefaults: Record<Agent, string>;
 }
 
 // ── Identity select ─────────────────────────────────────────────────────────
@@ -177,46 +187,95 @@ function BooleanControl(props: ControlProps) {
 export const booleanTester = rankWith(10, isBooleanControl);
 export const BooleanRenderer = withJsonFormsControlProps(BooleanControl);
 
-// ── Prompt model combobox ────────────────────────────────────────────────────
-// Which Claude model runs the headless drafting prompts. Deliberately NOT a
-// closed select: the value is passed verbatim to `claude --model`, which accepts
-// any tier alias or full model id. A datalist offers the common aliases as
-// suggestions while still accepting a typed-in value (e.g. a newly released
-// tier), so a new model needs no mAIestro Code update. Empty falls back to the schema
-// default (`haiku`), surfaced as the placeholder.
+// ── Agent select ─────────────────────────────────────────────────────────────
+// null means "use the global default", which a plain enum dropdown can't label
+// with the value it resolves to — so the first option names the global agent.
 
-/** Suggested `claude --model` aliases. Hints only — any value is accepted, so
- *  adding a newly released tier here is optional and non-breaking. */
-const PROMPT_MODEL_SUGGESTIONS = ["haiku", "sonnet", "opus", "fable"];
-
-function PromptModelControl(props: ControlProps) {
+function AgentControl(props: ControlProps) {
   const { data, handleChange, path, label, description, config } = props;
-  const listId = "prompt-model-suggestions";
+  const global: Agent = config?.globalAgent ?? "claude";
+  return (
+    <div className="control jsf-control">
+      <FieldHeading label={label} description={description} />
+      <select
+        className="text-input profile-select"
+        value={data ?? ""}
+        onChange={(e) => handleChange(path, e.target.value === "" ? null : e.target.value)}
+      >
+        <option value="">Use global default ({AGENT_PRODUCTS[global]})</option>
+        {AGENTS.map((a) => (
+          <option key={a} value={a}>
+            {AGENT_PRODUCTS[a]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export const agentTester = rankWith(20, scopeEndsWith("agent"));
+export const AgentRenderer = withJsonFormsControlProps(AgentControl);
+
+// ── Prompt model combobox ────────────────────────────────────────────────────
+// Which model runs the headless drafting prompts. The value is stored per agent
+// (`prompt_models.claude` / `.codex`) and this field edits the entry for the
+// repo's *effective* agent, so switching the Agent select swaps which entry
+// shows. Deliberately NOT a closed select: the value is passed verbatim to
+// `claude --model` / `codex exec --model`, which accept any alias or full model
+// id. A datalist offers each agent's known models as suggestions while still
+// accepting a typed-in value, so a new model needs no mAIestro Code update. Empty
+// falls back to the entry's schema default, surfaced as the placeholder.
+
+/** Suggested model names per agent. Hints only — any value is accepted, so
+ *  adding a newly released model here is optional and non-breaking. The Codex
+ *  list is the user-selectable (`visibility: "list"`) slugs from Codex's own
+ *  catalog (`codex debug models`); empty still uses Codex's configured default. */
+const PROMPT_MODEL_SUGGESTIONS: Record<Agent, string[]> = {
+  claude: ["haiku", "sonnet", "opus", "fable"],
+  codex: ["gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
+};
+
+/** Placeholder for an empty drafting-model field on `agent`. */
+export function promptModelPlaceholder(agent: Agent, schemaDefault: string): string {
+  if (schemaDefault) return schemaDefault;
+  return agent === "codex" ? "Codex's configured default" : "";
+}
+
+function PromptModelsControl(props: ControlProps) {
+  const { data, handleChange, path, label, description, config } = props;
+  const agent: Agent = asAgent(config?.repoAgent, "claude");
+  const models = (data ?? {}) as Partial<Record<Agent, string | null>>;
+  const listId = `prompt-model-suggestions-${agent}`;
+  const suggestions = PROMPT_MODEL_SUGGESTIONS[agent];
   return (
     <div className="control jsf-control">
       <FieldHeading label={label} description={description} />
       <input
         className="text-input jsf-default-hint"
         type="text"
-        list={listId}
-        value={data ?? ""}
-        placeholder={config?.promptModelDefault ?? ""}
-        onChange={(e) => handleChange(path, e.target.value.trim() || null)}
+        list={suggestions.length ? listId : undefined}
+        value={models[agent] ?? ""}
+        placeholder={promptModelPlaceholder(agent, config?.promptModelDefaults?.[agent] ?? "")}
+        onChange={(e) => handleChange(path, { ...models, [agent]: e.target.value.trim() || null })}
+        aria-label={`${AGENT_PRODUCTS[agent]} drafting model`}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
       />
-      <datalist id={listId}>
-        {PROMPT_MODEL_SUGGESTIONS.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
+      <div className="jsf-help">Editing the model for {AGENT_PRODUCTS[agent]}, this repo&apos;s agent.</div>
+      {suggestions.length > 0 && (
+        <datalist id={listId}>
+          {suggestions.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+      )}
     </div>
   );
 }
 
-export const promptModelTester = rankWith(20, scopeEndsWith("prompt_model"));
-export const PromptModelRenderer = withJsonFormsControlProps(PromptModelControl);
+export const promptModelsTester = rankWith(20, scopeEndsWith("prompt_models"));
+export const PromptModelsRenderer = withJsonFormsControlProps(PromptModelsControl);
 
 // ── Env files list ──────────────────────────────────────────────────────────
 // A list with Scan / Add / Remove, preserving the existing scan flow. The array
@@ -457,7 +516,7 @@ function PromptsControl(props: ControlProps) {
     <div className="control jsf-control jsf-prompts">
       <label className="jsf-label">AI prompts</label>
       <div className="jsf-help">
-        Instructions sent to Claude for this repo. Leave as the default, or override with
+        Instructions sent to this repo&apos;s agent. Leave as the default, or override with
         your own text (a custom prompt, or a /skill invocation).
       </div>
       {PROMPT_FIELDS.map(({ key, label, help }) => {
@@ -503,7 +562,8 @@ export const repoSettingsRenderers = [
   { tester: worktreePrefixTester, renderer: WorktreePrefixRenderer },
   { tester: envFilesTester, renderer: EnvFilesRenderer },
   { tester: postSpawnCommandsTester, renderer: PostSpawnCommandsRenderer },
-  { tester: promptModelTester, renderer: PromptModelRenderer },
+  { tester: agentTester, renderer: AgentRenderer },
+  { tester: promptModelsTester, renderer: PromptModelsRenderer },
   { tester: promptsTester, renderer: PromptsRenderer },
   { tester: booleanTester, renderer: BooleanRenderer },
   ...vanillaRenderers,
@@ -540,7 +600,8 @@ export function sanitizeSchemaForForm(
  *  the same schema). Passed to the custom renderers via JsonForms `config`. */
 export interface RepoFormDefaults {
   worktreePrefixDefault: string;
-  promptModelDefault: string;
+  /** Each agent's drafting-model default ("" = none, e.g. Codex's own model). */
+  promptModelDefaults: Record<Agent, string>;
   /** Every boolean property's default, keyed by property name. Collected
    *  generically so a boolean added to the schema needs no change here. */
   booleanDefaults: Record<string, boolean>;
@@ -553,6 +614,8 @@ export function extractFormDefaults(
   const props = (schema.properties ?? {}) as Record<string, { default?: unknown }>;
   const promptProps =
     ((props.prompts as { properties?: Record<string, { default?: unknown }> })?.properties) ?? {};
+  const modelProps =
+    ((props.prompt_models as { properties?: Record<string, { default?: unknown }> })?.properties) ?? {};
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const booleanDefaults: Record<string, boolean> = {};
   for (const [key, prop] of Object.entries(props)) {
@@ -560,7 +623,10 @@ export function extractFormDefaults(
   }
   return {
     worktreePrefixDefault: str(props.worktree_prefix?.default),
-    promptModelDefault: str(props.prompt_model?.default),
+    promptModelDefaults: {
+      claude: str(modelProps.claude?.default),
+      codex: str(modelProps.codex?.default),
+    },
     booleanDefaults,
     promptDefaults: {
       draft_issue: str(promptProps.draft_issue?.default),
