@@ -22,6 +22,14 @@ export const AGENT_PRODUCTS: Record<Agent, string> = {
   antigravity: "Antigravity CLI",
 };
 
+/** The CLI each agent runs — the backend's `Agent::tool()`, and the `tool` name
+ *  `tools_resolved` reports it under. */
+export const AGENT_TOOLS: Record<Agent, string> = {
+  claude: "claude",
+  codex: "codex",
+  antigravity: "agy",
+};
+
 /** Each agent's single-color mark (the pill, the agent picker). */
 export const AGENT_MARKS: Record<Agent, typeof ClaudeIcon> = {
   claude: ClaudeIcon,

@@ -54,7 +54,7 @@
         "label": "onboarding",
         "title": "Welcome to mAIestro Code",
         "width": 460,
-        "height": 470,
+        "height": 500,
         "resizable": false,
         "visible": false,
         "center": true,

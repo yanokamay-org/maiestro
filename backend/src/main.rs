@@ -13,6 +13,7 @@ mod hooks;
 mod identities;
 mod links;
 mod logging;
+mod models;
 mod naming;
 mod paths;
 mod popover_placement;
@@ -379,6 +380,7 @@ fn main() {
             app_settings::app_settings_set,
             app_settings::onboarding_complete,
             tools::tools_resolved,
+            models::agent_models,
             about::app_version,
             update_check::update_check_status,
             update_check::update_dismiss,

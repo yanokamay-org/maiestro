@@ -558,18 +558,6 @@ enum AgyModelsOutcome {
     Error(String),
 }
 
-/// The model ids in `agy models` output: the first tab-separated field of each
-/// line (`gemini-3.8-flash-low\tGemini 3.8 Flash (Low)`).
-fn agy_model_ids(stdout: &str) -> Vec<String> {
-    stdout
-        .lines()
-        .filter_map(|l| l.split('\t').next())
-        .map(str::trim)
-        .filter(|id| !id.is_empty() && !id.contains(' '))
-        .map(str::to_string)
-        .collect()
-}
-
 /// Classify `agy models` into the **Antigravity logged in** row (`login`) and
 /// its **model available** sub-row. `agy` has no login-status command, but
 /// `models` fits: logged out it exits 1 at once with "Please sign in…", logged
@@ -610,7 +598,7 @@ fn antigravity_checks(model: Option<&str>, outcome: AgyModelsOutcome, sign_in_co
         }
         AgyModelsOutcome::Exited { success: true, stdout, stderr } => (stdout, stderr),
     };
-    let ids = agy_model_ids(&stdout);
+    let ids = crate::models::agy_model_ids(&stdout);
     if ids.is_empty() {
         let login = HealthCheck::new(login_id, login_label, HealthStatus::Warn, format!("`agy models` listed no models: {}", snippet(&stderr)));
         return nest(login, HealthStatus::Skipped, "No models listed");

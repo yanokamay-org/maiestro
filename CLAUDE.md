@@ -47,7 +47,7 @@ The spawn subsystem is split along its natural seams so each file owns one respo
 - **`agent.rs`** — the `Agent` enum (`claude` / `codex` / `antigravity`, whose binary is `agy` — resolve via `Agent::tool()`); `repo_settings::effective_agent` resolves a repo's agent. A session records its agent at spawn, so changing the repo setting never switches an existing worktree; only the explicit per-session switch does.
 - **`session_agent.rs`** — switching an existing session's agent (`session_set_agent`), the session-aware `session_open_in_editor`, and the VS Code restart that applies a switch (`session_restart_editor`).
 - **`pr.rs`** — the PR lifecycle commands (`session_pr`, `session_create_pr`, `session_pr_checks`, `session_work_state`, `session_merge_pr`).
-- **`health.rs`** — the Check Health diagnostics; **`update_check.rs`** — the background newer-release poll; **`tools.rs`** — external tool resolution; **`app_settings.rs`** / **`repo_settings.rs`** — the two settings files and their schemas; **`about.rs`** — version/build info.
+- **`health.rs`** — the Check Health diagnostics; **`update_check.rs`** — the background newer-release poll; **`tools.rs`** — external tool resolution; **`models.rs`** — asking an agent's CLI which models it offers (the drafting-model suggestions); **`app_settings.rs`** / **`repo_settings.rs`** — the two settings files and their schemas; **`about.rs`** — version/build info.
 - **Shared helpers**: `gitops.rs` (`git()` / `local_branch_exists()`), `naming.rs` (slug/label helpers), `repo_context.rs` (the settings→identity→GitHub-client resolution + `validated_cloned_repo`), and `tools::{snippet, shell_quote}`.
 
 ### mAIestro Code launches sessions; it does not host them

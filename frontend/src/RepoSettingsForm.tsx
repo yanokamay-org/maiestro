@@ -9,7 +9,7 @@
 // Everything else (cloned repo dir, worktree prefix) falls through to the vanilla
 // string-input renderer, styled in styles.css.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ControlProps,
   isBooleanControl,
@@ -222,16 +222,17 @@ export const AgentRenderer = withJsonFormsControlProps(AgentControl);
 // repo's *effective* agent, so switching the Agent select swaps which entry
 // shows. Deliberately NOT a closed select: the value is passed verbatim to
 // `claude --model` / `codex exec --model` / `agy --model`, which accept any
-// alias or model id they know (`agy` has no aliases: ids carry an effort suffix). A datalist offers each agent's known models as suggestions while still
-// accepting a typed-in value, so a new model needs no mAIestro Code update. Empty
-// falls back to the entry's schema default, surfaced as the placeholder.
+// alias or model id they know (`agy` has no aliases: ids carry an effort
+// suffix). A datalist offers the agent's models as suggestions while still
+// accepting a typed-in value: the list the CLI itself reports (`agent_models` —
+// `codex debug models`, `agy models`) when it can, else the built-in hints
+// below, so a new model needs no mAIestro Code update. Empty falls back to the
+// entry's schema default, surfaced as the placeholder.
 
-/** Suggested model names per agent. Hints only — any value is accepted, so
- *  adding a newly released model here is optional and non-breaking. The Codex
- *  list is the user-selectable (`visibility: "list"`) slugs from Codex's own
- *  catalog (`codex debug models`); empty still uses Codex's configured default.
- *  The Antigravity list is from `agy models`. */
-const PROMPT_MODEL_SUGGESTIONS: Record<Agent, string[]> = {
+/** Built-in model hints per agent, used when the CLI can't list its models —
+ *  always for Claude Code (no listing command), and for Codex/Antigravity when
+ *  not installed or signed in. Hints only: any value is accepted. */
+export const PROMPT_MODEL_SUGGESTIONS: Record<Agent, string[]> = {
   claude: ["haiku", "sonnet", "opus", "fable"],
   codex: ["gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
   antigravity: ["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high", "gemini-3.1-pro-low"],
@@ -243,12 +244,26 @@ export function promptModelPlaceholder(agent: Agent, schemaDefault: string): str
   return agent === "codex" ? "Codex's configured default" : "";
 }
 
+/** The drafting-model suggestions for `agent`: the built-in hints at once,
+ *  replaced by the CLI's own list once `agent_models` returns one. */
+export function useAgentModels(agent: Agent): string[] {
+  const [queried, setQueried] = useState<{ agent: Agent; models: string[] } | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.agentModels(agent)
+      .then((models) => { if (live && models?.length) setQueried({ agent, models }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [agent]);
+  return queried?.agent === agent ? queried.models : PROMPT_MODEL_SUGGESTIONS[agent];
+}
+
 function PromptModelsControl(props: ControlProps) {
   const { data, handleChange, path, label, description, config } = props;
   const agent: Agent = asAgent(config?.repoAgent, "claude");
   const models = (data ?? {}) as Partial<Record<Agent, string | null>>;
   const listId = `prompt-model-suggestions-${agent}`;
-  const suggestions = PROMPT_MODEL_SUGGESTIONS[agent];
+  const suggestions = useAgentModels(agent);
   return (
     <div className="control jsf-control">
       <FieldHeading label={label} description={description} />

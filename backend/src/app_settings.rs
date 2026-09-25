@@ -439,16 +439,21 @@ pub fn maybe_show_onboarding(app: &tauri::AppHandle) {
 }
 
 /// Apply and persist the user's onboarding choices, marking onboarding complete so
-/// it never runs again — regardless of what was chosen. Today the only choice is
-/// launch-at-login; new options extend the parameters here and in
-/// `onboarding_complete`. Failure-tolerant: a failed LaunchAgent write is logged
-/// but onboarding is still marked complete, so we don't re-run it on every launch
-/// (the Preferences panel remains the way to change any setting afterwards). Ends
-/// by popping open the menu-bar popover (`main.rs::show_popover`), so the user
+/// it never runs again — regardless of what was chosen. The choices are
+/// launch-at-login and the default agent (`None` = leave `agent` untouched, as
+/// when the window is closed without finishing); new options extend the
+/// parameters here and in `onboarding_complete`. Failure-tolerant: a failed
+/// LaunchAgent write is logged but onboarding is still marked complete, so we
+/// don't re-run it on every launch (the General panel remains the way to change
+/// any setting afterwards). Ends by popping open the menu-bar popover (`main.rs::show_popover`), so the user
 /// lands somewhere useful the moment the onboarding window goes away, instead of
 /// finishing onto an empty desktop. Called exactly once per real completion (see
 /// callers), so this never double-shows the popover.
-pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
+pub fn complete_onboarding(
+    app: &tauri::AppHandle,
+    launch_at_login: bool,
+    agent: Option<crate::agent::Agent>,
+) {
     if let Err(e) = set_autolaunch(app, launch_at_login) {
         tracing::warn!(error = %e, "onboarding launch-at-login toggle failed");
     }
@@ -456,6 +461,9 @@ pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
     // window-size persist can't clobber these fields or vice versa.
     if let Err(e) = update(|s| {
         s.launch_at_login = Some(launch_at_login);
+        if agent.is_some() {
+            s.agent = agent;
+        }
         s.onboarding_completed = Some(true);
     }) {
         tracing::error!(error = %e, "failed to persist onboarding choices");
@@ -468,9 +476,17 @@ pub fn complete_onboarding(app: &tauri::AppHandle, launch_at_login: bool) {
 /// onboarding is already recorded, so the "closed = defaults" path must not also
 /// fire. Marks onboarding complete either way.
 #[tauri::command]
-pub fn onboarding_complete(app: tauri::AppHandle, launch_at_login: bool) {
-    crate::log_invoke!("onboarding_complete", launch_at_login = launch_at_login);
-    complete_onboarding(&app, launch_at_login);
+pub fn onboarding_complete(
+    app: tauri::AppHandle,
+    launch_at_login: bool,
+    agent: crate::agent::Agent,
+) {
+    crate::log_invoke!(
+        "onboarding_complete",
+        launch_at_login = launch_at_login,
+        agent = agent.as_str()
+    );
+    complete_onboarding(&app, launch_at_login, Some(agent));
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("onboarding") {
         let _ = window.destroy();
@@ -478,16 +494,16 @@ pub fn onboarding_complete(app: tauri::AppHandle, launch_at_login: bool) {
 }
 
 /// Handle the user closing the onboarding window (the title-bar close button)
-/// without pressing "Get started": accept the defaults (launch-at-login off) and
-/// mark onboarding complete so it doesn't reappear. Guarded on the flag so it's a
-/// no-op when the button already recorded the choices (that path uses `destroy()`,
+/// without pressing "Get started": accept the defaults (launch-at-login off, the
+/// agent left at its schema default) and mark onboarding complete so it doesn't
+/// reappear. Guarded on the flag so it's a no-op when the button already recorded the choices (that path uses `destroy()`,
 /// which skips this, but the guard is belt-and-suspenders). Called from
 /// `main.rs`'s window-event handler.
 pub fn complete_onboarding_if_pending(app: &tauri::AppHandle) {
     if load().onboarding_completed.unwrap_or(false) {
         return;
     }
-    complete_onboarding(app, false);
+    complete_onboarding(app, false, None);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

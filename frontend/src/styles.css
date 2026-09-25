@@ -1912,41 +1912,42 @@ body {
   background: var(--accent);
 }
 
-/* ── Onboarding dialog (issue #98) ───────────────────────────────────────── */
+/* ── Onboarding wizard (issues #98, #189) ─────────────────────────────────
+   A fixed shell — brand + step rail on top, actions pinned to the bottom —
+   around a step body that is the only thing that changes between steps. */
 
 .onboarding {
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 24px 28px;
   background: var(--bg);
   color: var(--text);
-  text-align: center;
   font-family: var(--font);
   -webkit-user-select: none;
   user-select: none;
 }
 
+.onboarding-head {
+  padding: 22px 28px 0;
+}
+
 .onboarding-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
 }
 
 .onboarding-logo {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
   color: var(--text);
 }
 
 .onboarding-title {
-  font-size: 23px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
   line-height: 1;
 }
 
@@ -1954,18 +1955,196 @@ body {
   color: var(--accent);
 }
 
-.onboarding-subtitle {
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 2px;
+/* Step rail: one bar per step, filled for the current and completed ones. */
+.onboarding-rail {
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  margin: 18px 0 0;
+  padding: 0;
 }
 
-.onboarding-options {
-  width: 100%;
+.onboarding-rail-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.2s;
+}
+
+.onboarding-rail-step.done .onboarding-rail-bar {
+  background: var(--accent-border);
+}
+
+.onboarding-rail-step.current .onboarding-rail-bar {
+  background: var(--accent);
+}
+
+.onboarding-rail-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.onboarding-rail-step.current .onboarding-rail-label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.onboarding-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 18px 0 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-rail-bar { transition: none; }
+}
+
+.onboarding-heading {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.onboarding-lead {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin-top: 4px;
+  max-width: 44ch;
+}
+
+.onboarding-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.onboarding-field-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.onboarding-field-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* Default-agent picker: a radio group of rows, mark + name left, whether the
+   agent's CLI is installed on the right. */
+.onboarding-agents {
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.onboarding-agent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  background: var(--surface);
+  transition: background 0.12s;
+}
+
+.onboarding-agent + .onboarding-agent {
+  border-top: 1px solid var(--border);
+}
+
+.onboarding-agent:hover {
+  background: var(--surface-hover);
+}
+
+.onboarding-agent.selected {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* The native radio stays for keyboard and screen readers; the row is the visual. */
+.onboarding-agent input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.onboarding-agent:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.onboarding-agent-mark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.onboarding-agent.selected .onboarding-agent-mark {
+  color: var(--text);
+}
+
+.onboarding-agent-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.onboarding-agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.onboarding-agent-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+}
+
+.onboarding-agent-status.found {
+  color: var(--green);
+}
+
+.onboarding-agent-status.found::before {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.onboarding-agent-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.onboarding-agent-note code {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text);
 }
 
 .onboarding-option {
@@ -1973,7 +2152,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  text-align: left;
+  margin-top: 16px;
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1986,45 +2165,33 @@ body {
 }
 
 .onboarding-option-hint {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   margin-top: 1px;
 }
 
-.onboarding-fields {
-  width: 100%;
+.onboarding-foot {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 16px 0 18px;
-  text-align: left;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 28px 16px;
+  border-top: 1px solid var(--border);
 }
 
-.onboarding-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.onboarding-field-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.onboarding-field-hint {
+.onboarding-foot-note {
   font-size: 11px;
   color: var(--muted);
-  opacity: 0.8;
 }
 
 .onboarding-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .onboarding-btn {
-  padding: 8px 22px;
+  padding: 7px 18px;
   font-size: 13px;
   font-weight: 600;
   font-family: var(--font);
@@ -2040,6 +2207,11 @@ body {
   background: var(--surface-hover);
 }
 
+.onboarding-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .onboarding-btn:disabled {
   opacity: 0.55;
   cursor: default;
@@ -2049,12 +2221,6 @@ body {
   background: var(--surface);
   border-color: var(--border);
   color: var(--text);
-}
-
-.onboarding-foot {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 12px;
 }
 
 .env-file-list {
