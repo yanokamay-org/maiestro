@@ -48,6 +48,7 @@ pub fn model(models: &PromptModels, agent: Agent) -> Option<String> {
     let (configured, ptr) = match agent {
         Agent::Claude => (&models.claude, "/properties/prompt_models/properties/claude/default"),
         Agent::Codex => (&models.codex, "/properties/prompt_models/properties/codex/default"),
+        Agent::Antigravity => (&models.antigravity, "/properties/prompt_models/properties/antigravity/default"),
     };
     Some(pick(configured, ptr)).filter(|m| !m.is_empty())
 }
@@ -57,19 +58,27 @@ mod tests {
     use super::*;
 
     /// Each agent reads its own entry; an unset Claude entry is `haiku`, an unset
-    /// Codex entry is no model at all (Codex's configured default).
+    /// Codex entry is no model at all (Codex's configured default), an unset
+    /// Antigravity entry is a cheap Gemini Flash id (`agy` has no aliases).
     #[test]
     fn model_is_chosen_per_agent() {
         let unset = PromptModels::default();
         assert_eq!(model(&unset, Agent::Claude).as_deref(), Some("haiku"));
         assert_eq!(model(&unset, Agent::Codex), None);
+        assert_eq!(model(&unset, Agent::Antigravity).as_deref(), Some("gemini-3.8-flash-low"));
 
-        let set = PromptModels { claude: Some("sonnet".into()), codex: Some(" gpt-5-codex ".into()) };
+        let set = PromptModels {
+            claude: Some("sonnet".into()),
+            codex: Some(" gpt-5-codex ".into()),
+            antigravity: Some("gemini-3.1-pro-low".into()),
+        };
         assert_eq!(model(&set, Agent::Claude).as_deref(), Some("sonnet"));
         assert_eq!(model(&set, Agent::Codex).as_deref(), Some("gpt-5-codex"));
+        assert_eq!(model(&set, Agent::Antigravity).as_deref(), Some("gemini-3.1-pro-low"));
 
-        let blank = PromptModels { claude: Some("  ".into()), codex: Some("".into()) };
+        let blank = PromptModels { claude: Some("  ".into()), codex: Some("".into()), antigravity: Some(" ".into()) };
         assert_eq!(model(&blank, Agent::Claude).as_deref(), Some("haiku"));
         assert_eq!(model(&blank, Agent::Codex), None);
+        assert_eq!(model(&blank, Agent::Antigravity).as_deref(), Some("gemini-3.8-flash-low"));
     }
 }

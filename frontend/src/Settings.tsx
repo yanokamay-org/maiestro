@@ -288,7 +288,7 @@ export function Settings() {
       knownIdentities,
       clonedRepoDir: loadedRepo?.settings.cloned_repo_dir ?? null,
       worktreePrefixDefault: repoFormDefaults?.worktreePrefixDefault ?? "",
-      promptModelDefaults: repoFormDefaults?.promptModelDefaults ?? { claude: "", codex: "" },
+      promptModelDefaults: repoFormDefaults?.promptModelDefaults ?? { claude: "", codex: "", antigravity: "" },
       globalAgent,
       repoAgent,
       booleanDefaults: repoFormDefaults?.booleanDefaults ?? {},

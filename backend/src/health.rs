@@ -2,7 +2,7 @@
 //!
 //! `repo_health_check` runs a set of informational diagnostics for one tracked
 //! repo — cloned checkout, the CLIs mAIestro Code invokes (`git`, the repo's agent
-//! — `claude` or `codex`, never both — and `code`),
+//! — `claude`, `codex` or `agy`, only ever the one in use — and `code`),
 //! the GitHub token *and the permissions it grants*, the configured env files,
 //! the worktree terminal font, and (trailing, issue #146) how old each directly
 //! invoked CLI is against a hardcoded minimum — and returns a `HealthReport` the
@@ -88,7 +88,7 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     let settings = repo_settings::repo_settings_get(repo.clone())?;
 
     // Only the repo's agent is checked (login, model, CLI version): a Codex repo
-    // never probes, lists, or version-checks `claude`, and vice versa, so a
+    // never probes, lists, or version-checks `claude` or `agy`, and so on, so a
     // single-agent machine gets a clean report.
     let agent = repo_settings::effective_agent(&settings);
     // The model mAIestro Code's own drafting calls would use — the agent probe
@@ -121,7 +121,8 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
     }
     step!("Cloned repo exists", check_cloned_repo(&repo, settings.cloned_repo_dir.as_deref()).await);
     step!("Git available", check_cli("git", "Git available"));
-    // The agent probe returns one row ("Claude logged in" / "Codex logged in")
+    // The agent probe returns one row ("Claude logged in" / "Codex logged in" /
+    // "Antigravity logged in")
     // with the model check nested as a sub — logged-in and model-available are
     // distinct facts, and the parent stays green (login) even when the model
     // sub fails.
@@ -132,6 +133,8 @@ pub async fn repo_health_check(window: tauri::Window, repo: String) -> Result<He
             check_claude(&repo, model.as_deref().unwrap_or_default(), agent_cwd.as_deref()).await
         ),
         Agent::Codex => step!(login_label, check_codex(&repo, model.as_deref(), agent_cwd.as_deref()).await),
+        // `agy models` needs no workspace, and the probe runs no model turn.
+        Agent::Antigravity => step!(login_label, check_antigravity(&repo, model.as_deref()).await),
     }
     step!("GitHub token & permissions", check_github(&repo, settings.identity_id.as_deref()).await);
     step!("Session editor available", check_editor());
@@ -544,6 +547,110 @@ async fn check_codex(repo: &str, model: Option<&str>, cwd: Option<&std::path::Pa
     nest(login, model_check)
 }
 
+/// The outcome of `agy models`, kept apart from running it so
+/// [`antigravity_checks`] is a pure, unit-tested classifier.
+enum AgyModelsOutcome {
+    /// It exited: success flag, stdout, stderr.
+    Exited { success: bool, stdout: String, stderr: String },
+    /// Killed after the timeout.
+    TimedOut,
+    /// Couldn't be run.
+    Error(String),
+}
+
+/// The model ids in `agy models` output: the first tab-separated field of each
+/// line (`gemini-3.8-flash-low\tGemini 3.8 Flash (Low)`).
+fn agy_model_ids(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter_map(|l| l.split('\t').next())
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && !id.contains(' '))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Classify `agy models` into the **Antigravity logged in** row (`login`) and
+/// its **model available** sub-row. `agy` has no login-status command, but
+/// `models` fits: logged out it exits 1 at once with "Please sign in…", logged
+/// in it lists every model the account can use — so the drafting model is
+/// checked against that list, with no model call and no quota spent.
+/// `sign_in_command` is the fix shown when logged out (run `agy` to sign in).
+fn antigravity_checks(model: Option<&str>, outcome: AgyModelsOutcome, sign_in_command: &str) -> HealthCheck {
+    let (login_id, login_label, model_id) = ("antigravity_login", "Antigravity logged in", "antigravity_model");
+    let model_label = match model {
+        Some(m) => format!("Model `{m}` available"),
+        None => "Drafting model".to_string(),
+    };
+    let nest = |mut login: HealthCheck, status: HealthStatus, detail: &str| {
+        login.sub.push(HealthCheck::new(model_id, &model_label, status, detail));
+        login
+    };
+    let (stdout, stderr) = match outcome {
+        AgyModelsOutcome::TimedOut => {
+            let login = HealthCheck::new(login_id, login_label, HealthStatus::Warn, "`agy models` timed out after 20s");
+            return nest(login, HealthStatus::Skipped, "agy timed out");
+        }
+        AgyModelsOutcome::Error(e) => {
+            let login = HealthCheck::new(login_id, login_label, HealthStatus::Fail, format!("Couldn't run agy: {e}"));
+            return nest(login, HealthStatus::Skipped, "agy couldn't run");
+        }
+        AgyModelsOutcome::Exited { success: false, stderr, .. } => {
+            // The last stderr line is the message ("Error: Please sign in …");
+            // earlier ones are progress ("Fetching available models...").
+            let message = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("agy models failed");
+            let message = message.strip_prefix("Error:").unwrap_or(message).trim();
+            let login = if message.to_ascii_lowercase().contains("sign in") {
+                HealthCheck::new(login_id, login_label, HealthStatus::Fail, format!("Not signed in: {message}"))
+                    .with_command(sign_in_command.to_string())
+            } else {
+                HealthCheck::new(login_id, login_label, HealthStatus::Fail, snippet(message))
+            };
+            return nest(login, HealthStatus::Skipped, "Antigravity not signed in");
+        }
+        AgyModelsOutcome::Exited { success: true, stdout, stderr } => (stdout, stderr),
+    };
+    let ids = agy_model_ids(&stdout);
+    if ids.is_empty() {
+        let login = HealthCheck::new(login_id, login_label, HealthStatus::Warn, format!("`agy models` listed no models: {}", snippet(&stderr)));
+        return nest(login, HealthStatus::Skipped, "No models listed");
+    }
+    let login = HealthCheck::new(login_id, login_label, HealthStatus::Pass, format!("Signed in · {} models available", ids.len()));
+    match model {
+        None => nest(login, HealthStatus::Info, "No drafting model set"),
+        Some(m) if ids.iter().any(|id| id == m) => nest(login, HealthStatus::Pass, &format!("`{m}` is listed by `agy models`")),
+        Some(m) => nest(
+            login,
+            HealthStatus::Fail,
+            &format!("`{m}` isn't a model `agy models` lists (ids need their effort suffix, e.g. -low) — available: {}", ids.join(", ")),
+        ),
+    }
+}
+
+/// Probe Antigravity via `agy models` and return the **Antigravity logged in**
+/// check with a nested **model available** sub-check ([`antigravity_checks`]).
+async fn check_antigravity(repo: &str, model: Option<&str>) -> HealthCheck {
+    let Some(bin) = crate::tools::find_tool("agy") else {
+        let mut login = HealthCheck::new("antigravity_login", "Antigravity logged in", HealthStatus::Fail, tool_not_found_detail("agy"));
+        let label = model.map_or_else(|| "Drafting model".to_string(), |m| format!("Model `{m}` available"));
+        login.sub.push(HealthCheck::new("antigravity_model", &label, HealthStatus::Skipped, "agy not found"));
+        return login;
+    };
+    log_command(repo, "agy models");
+    let mut cmd = crate::tools::tokio_command("agy");
+    cmd.arg("models").stdin(std::process::Stdio::null()).kill_on_drop(true);
+    let outcome = match tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await {
+        Err(_) => AgyModelsOutcome::TimedOut,
+        Ok(Err(e)) => AgyModelsOutcome::Error(e.to_string()),
+        Ok(Ok(o)) => AgyModelsOutcome::Exited {
+            success: o.status.success(),
+            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+        },
+    };
+    antigravity_checks(model, outcome, &bin.display().to_string())
+}
+
 /// The session editor. Today mAIestro Code always launches VS Code (`open_vscode`),
 /// preferring the `code` CLI and falling back to the app bundle — so mirror that:
 /// pass if the `code` CLI resolves, warn (with the fallback still viable) if not.
@@ -870,10 +977,11 @@ fn write_permission_check(
 // ── Tool versions (issue #146) ──────────────────────────────────────────────
 //
 // The earlier checks confirm each directly-invoked tool *resolves*
-// (`check_cli`, `check_claude`/`check_codex`, `check_editor`); this trailing
+// (`check_cli`, `check_claude`/`check_codex`/`check_antigravity`, `check_editor`); this trailing
 // group asks how old it is. mAIestro Code leans on features only newer releases
 // have — Claude Code's `--remote-control`/`--name` launch flags, the
-// `PostToolUseFailure` hook, `/color`; Codex's hooks and `exec` flags; `git
+// `PostToolUseFailure` hook, `/color`; Codex's hooks and `exec` flags;
+// Antigravity's headless exit codes and JSON errors; `git
 // worktree`; VS Code's `--disable-workspace-trust` — so a
 // stale binary can fail mid-spawn or degrade silently. A version below the
 // floor is a **`Warn`**, never a `Fail`: an old tool might still work, and this
@@ -904,6 +1012,12 @@ const MIN_TOOL_VERSIONS: &[ToolMinimum] = &[
         label: "Codex CLI",
         min: "0.133.0",
         reason: "needed for stable hooks (PermissionRequest, SessionEnd) and the `codex exec` flags drafting uses",
+    },
+    ToolMinimum {
+        tool: "agy",
+        label: "Antigravity CLI",
+        min: "1.2.10",
+        reason: "needed for the headless exit codes and JSON errors drafting relies on",
     },
     ToolMinimum {
         tool: "git",
@@ -969,8 +1083,8 @@ enum VersionOutcome {
 }
 
 /// A resolved-but-unusable-`brew` path never gets an upgrade command guessed —
-/// only these tools have an unambiguous one. `claude update` and `codex update`
-/// self-update regardless of install method; `git` only offers `brew upgrade git` when the
+/// only these tools have an unambiguous one. `claude update`, `codex update` and
+/// `agy update` self-update regardless of install method; `git` only offers `brew upgrade git` when the
 /// resolved binary actually lives under a Homebrew prefix (Apple's Xcode-stub
 /// git and a system git can't be upgraded that way). VS Code updates itself
 /// from its own menu, so `code` never gets a command.
@@ -978,6 +1092,7 @@ fn version_upgrade_command(tool: &str, path: &std::path::Path) -> Option<String>
     match tool {
         "claude" => Some("claude update".to_string()),
         "codex" => Some("codex update".to_string()),
+        "agy" => Some("agy update".to_string()),
         "git" => {
             let p = path.to_string_lossy();
             (p.starts_with("/opt/homebrew/") || p.starts_with("/usr/local/")).then(|| "brew upgrade git".to_string())
@@ -1067,7 +1182,7 @@ async fn check_one_tool_version(repo: &str, min: &ToolMinimum) -> HealthCheck {
 /// `code` always do; an agent CLI only when it is the repo's agent.
 fn tool_applies(tool: &str, agent: Agent) -> bool {
     match tool {
-        "claude" | "codex" => tool == agent.tool(),
+        "claude" | "codex" | "agy" => tool == agent.tool(),
         _ => true,
     }
 }
@@ -1327,6 +1442,57 @@ mod tests {
         };
         assert_eq!(for_agent(Agent::Claude), vec!["claude", "git", "code"]);
         assert_eq!(for_agent(Agent::Codex), vec!["codex", "git", "code"]);
+        assert_eq!(for_agent(Agent::Antigravity), vec!["agy", "git", "code"]);
+    }
+
+    fn agy_exited(success: bool, stdout: &str, stderr: &str) -> AgyModelsOutcome {
+        AgyModelsOutcome::Exited { success, stdout: stdout.into(), stderr: stderr.into() }
+    }
+
+    /// Signed in with a listed model: both rows pass.
+    #[test]
+    fn antigravity_signed_in_with_a_listed_model() {
+        let list = "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n";
+        let c = antigravity_checks(Some("gemini-3.8-flash-low"), agy_exited(true, list, "Fetching available models...\n"), "agy");
+        assert_eq!(c.status, HealthStatus::Pass);
+        assert!(c.detail.contains("2 models"), "{}", c.detail);
+        assert_eq!(c.sub[0].status, HealthStatus::Pass);
+    }
+
+    /// A model `agy models` doesn't list (e.g. without its effort suffix) fails
+    /// the model row but not the login.
+    #[test]
+    fn antigravity_unlisted_model_fails_only_the_model_row() {
+        let c = antigravity_checks(Some("gemini-3.8-flash"), agy_exited(true, "gemini-3.8-flash-low\tGemini\n", ""), "agy");
+        assert_eq!(c.status, HealthStatus::Pass);
+        assert_eq!(c.sub[0].status, HealthStatus::Fail);
+        assert!(c.sub[0].detail.contains("gemini-3.8-flash-low"), "{}", c.sub[0].detail);
+    }
+
+    /// Logged out: `agy models` exits 1 with "Please sign in"; the fix is
+    /// running `agy`, and the model row is skipped.
+    #[test]
+    fn antigravity_logged_out() {
+        let err = "Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.\n";
+        let c = antigravity_checks(Some("m"), agy_exited(false, "", err), "/home/u/.local/bin/agy");
+        assert_eq!(c.status, HealthStatus::Fail);
+        assert!(c.detail.starts_with("Not signed in: Please sign in"), "{}", c.detail);
+        assert_eq!(c.command.as_deref(), Some("/home/u/.local/bin/agy"));
+        assert_eq!(c.sub[0].status, HealthStatus::Skipped);
+    }
+
+    /// Timeouts warn; spawn failures fail; neither guesses about the model.
+    #[test]
+    fn antigravity_timeout_and_spawn_error() {
+        let c = antigravity_checks(Some("m"), AgyModelsOutcome::TimedOut, "agy");
+        assert_eq!((c.status, c.sub[0].status), (HealthStatus::Warn, HealthStatus::Skipped));
+        let c = antigravity_checks(Some("m"), AgyModelsOutcome::Error("denied".into()), "agy");
+        assert_eq!((c.status, c.sub[0].status), (HealthStatus::Fail, HealthStatus::Skipped));
+    }
+
+    #[test]
+    fn agy_updates_itself() {
+        assert_eq!(version_upgrade_command("agy", std::path::Path::new("/opt/homebrew/bin/agy")), Some("agy update".to_string()));
     }
 
     #[test]

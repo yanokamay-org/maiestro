@@ -47,11 +47,11 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro Code** to Applications.
 
-**2. Install an agent: Claude Code or Codex CLI.** mAIestro Code launches your
-coding agent into every workspace it creates and uses it to draft issues, labels,
-and PRs, so it has to be installed and logged in first. You need **one** of the
-two, not both. Claude Code is the default. To use Codex, pick it under
-**General → Default Agent**, or per repo in that repo's settings.
+**2. Install an agent: Claude Code, Codex CLI, or Antigravity CLI.** mAIestro
+Code launches your coding agent into every workspace it creates and uses it to
+draft issues, labels, and PRs, so it has to be installed and logged in first. You
+need **one** of them, not all. Claude Code is the default. To use another agent,
+pick it under **General → Default Agent**, or per repo in that repo's settings.
 
 *Claude Code* — either installer works:
 
@@ -87,6 +87,26 @@ Codex session starts, Codex asks you to review mAIestro Code's status hooks:
 choose **trust all**. That one approval covers every workspace from
 then on, including after mAIestro Code updates. Codex reports no failed-tool
 errors, so the pill never turns red for those.
+
+*Antigravity CLI* (`agy`, Google's terminal agent): install it, then run it
+once to sign in with your Google account:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash   # or: brew install --cask antigravity-cli
+agy --version   # 1.2.10 or newer
+agy             # sign in on first run
+```
+
+Antigravity sessions differ in a few ways:
+- The session doesn't take the worktree's name or color, though the VS Code bars
+  are still colored.
+- Each new workspace starts with Antigravity's own "Do you trust the contents of
+  this project?" prompt. Answer yes, or its status hooks won't load.
+- Antigravity has no hook for its permission prompts, so the pill shows
+  **Needs you** only when the agent asks you a question, and it stays
+  **Working** after you press Esc until your next prompt.
+- Drafting uses `gemini-3.8-flash-low` unless you pick another id from
+  `agy models`.
 
 **3. Set up git and GitHub for your sessions.** Spawned sessions push branches
 and fetch under your *ambient* git auth, not through mAIestro Code. Make sure `git`
@@ -178,8 +198,9 @@ prerequisites in one pass and streams the results:
   really points at this `owner/name`.
 - **Git available** and **Session editor available** — the `git` and VS Code
   `code` CLIs resolve (pin them under **General → Tool paths** if not).
-- **Claude logged in** (or **Codex logged in**, for a Codex repo), with a
-  **model available** sub-check — a real probe of the repo's drafting model, so
+- **Claude logged in** (or **Codex logged in** / **Antigravity logged in**, for
+  a repo on that agent), with a **model available** sub-check — a real probe of
+  the repo's drafting model (for Antigravity, a check against `agy models`), so
   a login problem and a bad model name are reported separately. Only the repo's
   own agent is checked, so a machine with just one agent installed gets a clean
   report.
@@ -292,11 +313,16 @@ agent that then works in it is steered by files the repository controls:
   to that session exactly as if you had run `claude` there yourself, so a
   malicious repository can influence the agent. That is Claude Code's own trust
   model, not something mAIestro Code adds or removes. The same holds for a Codex
-  session and the repo's `AGENTS.md` and `.codex/` configuration.
+  session and the repo's `AGENTS.md` and `.codex/` configuration, and for an
+  Antigravity session and the repo's `.agents/` configuration. mAIestro Code adds
+  its own status hooks to a worktree's `.agents/hooks.json`, and they never
+  approve or deny a tool.
 - **mAIestro Code's own drafting calls run with all tools disabled.** The
   issue, label, and PR-description drafts run `claude -p … --tools ""` (or, for
   Codex, `codex exec --sandbox read-only` with the shell and other tools
-  disabled) in the repo, so prompt injection from your idea text, an issue body, a diff, or the
+  disabled) in the repo. For Antigravity, headless `agy` runs in an empty
+  mAIestro Code folder (`~/.maiestro/antigravity-draft/`) whose hook denies
+  every tool. Either way, prompt injection from your idea text, an issue body, a diff, or the
   repo's `CLAUDE.md` can at worst produce a bad draft — never read files, run
   commands, or fetch URLs.
 

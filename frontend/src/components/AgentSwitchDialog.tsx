@@ -1,8 +1,6 @@
 import { Agent } from "../api";
-import { AGENT_PRODUCTS, AGENTS } from "../lib/agents";
+import { AGENT_MARKS, AGENT_PRODUCTS, AGENTS } from "../lib/agents";
 import { OverlayDialog } from "./OverlayDialog";
-import ClaudeIcon from "../icons/claude.svg?react";
-import OpenAIIcon from "../icons/openai.svg?react";
 
 // Opened from a work item's "AI Agent…" command (issue #186): pick which agent
 // this worktree launches. The current one is shown but not selectable; choosing
@@ -22,7 +20,7 @@ export function AgentSwitchDialog({ title, current, onConfirm, onClose }: {
           the same, but the current conversation doesn&apos;t carry over to the other agent.
         </p>
         {AGENTS.map((a) => {
-          const Mark = a === "codex" ? OpenAIIcon : ClaudeIcon;
+          const Mark = AGENT_MARKS[a];
           const isCurrent = a === current;
           return (
             <button

@@ -106,7 +106,12 @@ pub fn write_vscode_files(
 /// turn, so the session carries no name or color of its own — the VS Code bars
 /// are still themed.
 ///
-/// Either way the binary is the **resolved** agent path (`tools::resolve_tool`),
+/// **Antigravity:** the bare binary. Its status hooks live in the worktree's
+/// `.agents/hooks.json` (`hooks.rs`), and it has no session-name flag or
+/// `/color`; an initial prompt (`-i`) would start a real model turn. Antigravity
+/// asks the user to trust each new worktree folder at startup — its own prompt.
+///
+/// Whatever the agent, the binary is the **resolved** agent path (`tools::resolve_tool`),
 /// not a bare name left to PATH (issue #134). The task runs in VS Code's
 /// integrated terminal, whose PATH is whatever the VS Code process inherited —
 /// and when mAIestro Code launched that VS Code from the packaged bundle at login,
@@ -127,6 +132,7 @@ fn session_command(agent: Agent, color: &str, session_title: &str) -> String {
             .chain(crate::hooks::codex_hook_overrides().iter().map(|o| format!("-c {}", shell_quote(o))))
             .collect::<Vec<_>>()
             .join(" "),
+        Agent::Antigravity => bin,
     }
 }
 
@@ -465,6 +471,24 @@ mod tests {
         assert_eq!(task["label"], "Start Codex");
         assert_eq!(task["runOptions"]["runOn"], "folderOpen");
 
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/settings.json")).unwrap()).unwrap();
+        assert_eq!(settings["workbench.colorCustomizations"]["titleBar.activeBackground"], "#c46686");
+    }
+
+    /// An Antigravity worktree's task runs the resolved `agy` alone — no flags,
+    /// no initial prompt (hooks live in `.agents/hooks.json`) — as "Start
+    /// Antigravity", with the VS Code bars still themed.
+    #[test]
+    fn antigravity_task_runs_the_bare_resolved_agy() {
+        let dir = tempfile::tempdir().unwrap();
+        write_vscode_files(dir.path(), "work-185-x", "#c46686", "x", Agent::Antigravity).unwrap();
+        let tasks: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/tasks.json")).unwrap()).unwrap();
+        let task = &tasks["tasks"][0];
+        let expected = crate::tools::shell_quote(&crate::tools::resolve_tool("agy").to_string_lossy());
+        assert_eq!(task["command"].as_str().unwrap(), expected);
+        assert_eq!(task["label"], "Start Antigravity");
         let settings: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".vscode/settings.json")).unwrap()).unwrap();
         assert_eq!(settings["workbench.colorCustomizations"]["titleBar.activeBackground"], "#c46686");

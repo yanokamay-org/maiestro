@@ -33,14 +33,17 @@ pub struct PromptOverrides {
 
 /// The model for mAIestro Code's own drafting calls, one entry per agent (only
 /// the effective agent's entry is used). `None`/empty uses that entry's schema
-/// `default` — `haiku` for Claude, and for Codex no `--model` at all (Codex's
-/// own configured default). See `crate::prompts::model`.
+/// `default` — `haiku` for Claude, a cheap Gemini Flash id for Antigravity, and
+/// for Codex no `--model` at all (Codex's own configured default). See
+/// `crate::prompts::model`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PromptModels {
     #[serde(default)]
     pub claude: Option<String>,
     #[serde(default)]
     pub codex: Option<String>,
+    #[serde(default)]
+    pub antigravity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -468,8 +471,12 @@ mod tests {
             post_spawn_commands: vec!["pnpm install".into()],
             delete_remote_on_teardown: Some(false),
             comment_on_spawn: Some(false),
-            agent: Some(Agent::Codex),
-            prompt_models: PromptModels { claude: Some("sonnet".into()), codex: Some("gpt-5-codex".into()) },
+            agent: Some(Agent::Antigravity),
+            prompt_models: PromptModels {
+                claude: Some("sonnet".into()),
+                codex: Some("gpt-5-codex".into()),
+                antigravity: Some("gemini-3.1-pro-low".into()),
+            },
             hidden: Some(HideState { snooze_until: Some(1_717_372_800_000) }),
             prompts: PromptOverrides {
                 draft_issue: Some("Custom issue instruction".into()),

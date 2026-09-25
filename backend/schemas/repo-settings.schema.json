@@ -45,13 +45,13 @@
     },
     "agent": {
       "type": ["string", "null"],
-      "enum": ["claude", "codex", null],
-      "description": "The coding agent for this repo: Claude Code or Codex CLI. Used for the session in each spawned worktree and for mAIestro Code's own drafting (issues, labels, PRs). null = use the global default. An existing worktree keeps the agent it was spawned with."
+      "enum": ["claude", "codex", "antigravity", null],
+      "description": "The coding agent for this repo: Claude Code, Codex CLI, or Antigravity CLI (`agy`). Used for the session in each spawned worktree and for mAIestro Code's own drafting (issues, labels, PRs). null = use the global default. An existing worktree keeps the agent it was spawned with."
     },
     "prompt_models": {
       "type": ["object", "null"],
       "title": "PromptModels",
-      "description": "Which model runs mAIestro Code's own drafting prompts (issue, label, PR), per agent. Only the entry for the repo's agent is used. Replaces the older `prompt_model` field, which is read once as `claude`.",
+      "description": "Which model runs mAIestro Code's own drafting prompts (issue, label, PR), per agent. Only the entry for the repo's agent is used.",
       "properties": {
         "claude": {
           "type": ["string", "null"],
@@ -62,6 +62,11 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Any value `codex exec --model` accepts; empty uses the model configured in Codex itself."
+        },
+        "antigravity": {
+          "type": ["string", "null"],
+          "default": "gemini-3.8-flash-low",
+          "description": "Any model id `agy models` lists (e.g. gemini-3.8-flash-low); empty uses the default (gemini-3.8-flash-low)."
         }
       }
     },

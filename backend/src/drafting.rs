@@ -1,10 +1,11 @@
 //! AI drafting: turn a free-text idea into a GitHub issue (title + body + short
 //! label), and compress an existing issue into a short session label — all via
-//! headless calls to the repo's agent ([`agent_text`]: `claude -p` or
-//! `codex exec`).
+//! headless calls to the repo's agent ([`agent_text`]: `claude -p`,
+//! `codex exec`, or headless `agy`).
 //!
-//! These calls run the agent in the repo for context but with no tools (no
-//! file/shell/edit/fetch access), so prompt injection from the input or repo files
+//! These calls run with no tools (no file/shell/edit/fetch access) — Claude and
+//! Codex in the repo for context, Antigravity in an empty mAIestro-owned folder
+//! (see [`antigravity_text`]) — so prompt injection from the input or repo files
 //! is contained to, at worst, a bad title the user reviews — never code execution.
 //! `AgentActivity` correlates a run with the UI action that started it so its
 //! busy glow can switch to the rainbow (AI) variant. Extracted from `spawn.rs`
@@ -105,6 +106,7 @@ pub async fn agent_text(
     match agent {
         Agent::Claude => claude_text(dir, prompt, model.unwrap_or_default(), what).await,
         Agent::Codex => codex_text(dir, prompt, model, what).await,
+        Agent::Antigravity => antigravity_text(prompt, model, what).await,
     }
 }
 
@@ -276,6 +278,192 @@ async fn codex_text(dir: &Path, prompt: &str, model: Option<&str>, what: &str) -
     Ok(reply.trim().to_string())
 }
 
+// ── Antigravity (`agy`) ─────────────────────────────────────────────────────────
+
+/// The folder every Antigravity drafting call runs in: empty but for
+/// [`antigravity_lockdown_hooks`]. Headless `agy` allows reading files in its
+/// workspace and soft-denies everything else, and it loads a workspace
+/// `.agents/hooks.json` even in an untrusted folder — so running here, not in
+/// the repo, leaves nothing to read, and the deny-all hook blocks every tool
+/// outright (including any the user's own permission rules would allow). We
+/// never write the user's `~/.gemini/` config to get there.
+pub(crate) fn antigravity_draft_dir() -> std::path::PathBuf {
+    crate::paths::maiestro_dir("antigravity-draft")
+}
+
+/// The drafting folder's `.agents/hooks.json`: one `PreToolUse` hook matching
+/// every tool that answers `deny`. It is plain `printf` — no mAIestro Code binary
+/// involved — so it can't fail open if the app moves.
+pub(crate) fn antigravity_lockdown_hooks() -> serde_json::Value {
+    let decision = r#"{"decision":"deny","reason":"mAIestro Code drafting runs without tools."}"#;
+    serde_json::json!({
+        "maiestro-lockdown": {
+            "PreToolUse": [{
+                "matcher": "*",
+                "hooks": [{ "type": "command", "command": format!("printf '%s\\n' '{decision}'"), "timeout": 5 }]
+            }]
+        }
+    })
+}
+
+/// Create [`antigravity_draft_dir`] and (re)write its lockdown hook when it's
+/// missing or differs, so a hand edit can't quietly re-enable tools.
+fn ensure_antigravity_draft_dir() -> Result<std::path::PathBuf, String> {
+    let dir = antigravity_draft_dir();
+    let hooks = dir.join(".agents").join("hooks.json");
+    let body = serde_json::to_string_pretty(&antigravity_lockdown_hooks()).unwrap() + "\n";
+    if std::fs::read_to_string(&hooks).ok().as_deref() != Some(body.as_str()) {
+        std::fs::create_dir_all(hooks.parent().unwrap()).map_err(|e| format!("couldn't create {}: {e}", dir.display()))?;
+        crate::paths::write_atomic(&hooks, body.as_bytes()).map_err(|e| format!("couldn't write {}: {e}", hooks.display()))?;
+    }
+    Ok(dir)
+}
+
+/// The `agy` arguments for a one-shot, tool-less drafting turn whose prompt
+/// arrives on stdin. Pure so the flag set is unit-tested.
+///
+/// - `--input-format stream-json` (+ the matching output format): the only way
+///   `agy` reads a prompt from stdin, so a large PR diff never hits argv limits;
+///   `-p` needs the prompt as an argument. One stdin line = one turn.
+/// - `--disable-slash-commands`: a prompt that starts with `/` (e.g. a
+///   `/skill` instruction override, or pasted text) stays text.
+/// - Never `--dangerously-skip-permissions`; the lockdown hook denies all tools.
+pub(crate) fn agy_draft_args(model: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = ["--input-format", "stream-json", "--output-format", "stream-json", "--disable-slash-commands"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+        args.push("--model".into());
+        args.push(m.trim().to_string());
+    }
+    args
+}
+
+/// The single stream-json stdin message carrying `prompt`.
+fn agy_stdin_message(prompt: &str) -> String {
+    serde_json::json!({ "event": "user", "message": { "role": "user", "content": prompt } }).to_string() + "\n"
+}
+
+/// What `agy` prints on stderr when it has no signed-in account — it then waits
+/// 60s for a pasted OAuth code, so we stop it as soon as this appears.
+const AGY_AUTH_REQUIRED: &str = "Authentication required";
+
+/// The drafting error when `agy` has no signed-in account.
+const AGY_NOT_SIGNED_IN: &str = "Antigravity isn't signed in — run `agy` in a terminal to sign in";
+
+/// Pull the reply out of a headless `agy` stream-json run: the last
+/// `{"event":"result"}` line's `result`. A `SUCCESS` with an empty `response` is
+/// a failure too — that's what a `--print-timeout` or an all-tools-denied turn
+/// returns. Pure for unit tests.
+pub(crate) fn parse_agy_result(stdout: &str) -> Result<String, String> {
+    let result = stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
+        .rfind(|v| v["event"] == "result")
+        .map(|v| v["result"].clone())
+        .ok_or_else(|| format!("agy printed no result: {}", snippet(stdout)))?;
+    if result["status"] != "SUCCESS" {
+        let error = result["error"].as_str().unwrap_or("").trim();
+        // A bad-model error appends the whole model list; the first line says it.
+        let first = error.lines().next().unwrap_or("").trim();
+        let status = result["status"].as_str().unwrap_or("?");
+        return Err(if first.is_empty() { format!("agy reported {status}") } else { first.to_string() });
+    }
+    let response = result["response"].as_str().unwrap_or("").trim();
+    if response.is_empty() {
+        return Err("agy returned an empty reply".into());
+    }
+    Ok(response.to_string())
+}
+
+/// Why a headless `agy` run failed before producing a result.
+#[derive(Debug)]
+pub(crate) enum AgyRunError {
+    /// Not signed in: `agy` asked for an OAuth code and was stopped.
+    AuthRequired,
+    /// `agy` couldn't be started.
+    Spawn(std::io::Error),
+    /// The run didn't finish within the timeout (and was killed).
+    Timeout,
+    /// An I/O error talking to the child.
+    Io(std::io::Error),
+}
+
+/// Run headless `agy` with `args` in `dir`, feeding `stdin`. Watches stderr and
+/// kills the child the moment it asks for a sign-in ([`AGY_AUTH_REQUIRED`])
+/// rather than letting it wait 60s for a code nobody will paste. Returns stdout
+/// and stderr of a run that finished on its own (whatever its exit code).
+pub(crate) async fn run_agy(
+    dir: &Path,
+    args: &[String],
+    stdin: &str,
+    timeout: std::time::Duration,
+) -> Result<(String, String), AgyRunError> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    let mut child = crate::tools::tokio_command("agy")
+        .current_dir(dir)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(AgyRunError::Spawn)?;
+    let mut child_stdin = child.stdin.take().expect("piped stdin");
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let input = stdin.to_string();
+    let run = async move {
+        child_stdin.write_all(input.as_bytes()).await.map_err(AgyRunError::Io)?;
+        drop(child_stdin); // EOF: stream-json runs the one turn, then exits.
+        let out_task = tokio::spawn(async move {
+            let mut s = String::new();
+            let _ = stdout.read_to_string(&mut s).await;
+            s
+        });
+        let mut err_text = String::new();
+        let mut lines = BufReader::new(stderr).lines();
+        while let Some(line) = lines.next_line().await.map_err(AgyRunError::Io)? {
+            if line.contains(AGY_AUTH_REQUIRED) {
+                let _ = child.kill().await;
+                return Err(AgyRunError::AuthRequired);
+            }
+            err_text.push_str(&line);
+            err_text.push('\n');
+        }
+        child.wait().await.map_err(AgyRunError::Io)?;
+        Ok((out_task.await.unwrap_or_default(), err_text))
+    };
+    tokio::time::timeout(timeout, run).await.map_err(|_| AgyRunError::Timeout)?
+}
+
+/// Antigravity backend: headless `agy` in [`antigravity_draft_dir`] (never the
+/// repo) with every tool denied, the prompt on stdin (see [`agy_draft_args`]),
+/// and the reply from the stream's final result ([`parse_agy_result`]).
+async fn antigravity_text(prompt: &str, model: Option<&str>, what: &str) -> Result<String, String> {
+    let dir = ensure_antigravity_draft_dir()?;
+    let (stdout, stderr) = run_agy(&dir, &agy_draft_args(model), &agy_stdin_message(prompt), AGENT_TIMEOUT)
+        .await
+        .map_err(|e| match e {
+            AgyRunError::AuthRequired => AGY_NOT_SIGNED_IN.to_string(),
+            AgyRunError::Spawn(e) => format!("could not run agy (is it installed and on PATH?): {e}"),
+            AgyRunError::Timeout => format!("agy timed out while {what}"),
+            AgyRunError::Io(e) => format!("agy failed while {what}: {e}"),
+        })?;
+    parse_agy_result(&stdout).map_err(|e| {
+        // With a pipe for stdin, a logged-out `agy` may give up on its own
+        // ("authentication failed or timed out") before we see the prompt.
+        if e.to_ascii_lowercase().contains("authentication") {
+            AGY_NOT_SIGNED_IN.to_string()
+        } else if stdout.trim().is_empty() {
+            format!("agy exited with an error: {}", snippet(&stderr))
+        } else {
+            format!("agy reported an error while {what}: {e}")
+        }
+    })
+}
+
 /// Ask Claude, running in the cloned repo for context, to turn the user's
 /// free-text idea into an issue title + markdown body + a short label. The
 /// `short_title` is produced in the *same* call (no extra Claude run): it's a
@@ -440,6 +628,58 @@ mod tests {
         assert_eq!(codex_error_message(logged_out), "unexpected status 401 Unauthorized: Missing bearer");
         assert_eq!(codex_error_message("boom"), "boom");
         assert_eq!(codex_error_message(""), "<empty>");
+    }
+
+    /// The Antigravity drafting call has no usable tools: it runs in the
+    /// mAIestro-owned lockdown folder (not the repo), whose hook denies every
+    /// tool, and never passes a flag that would auto-approve one. The prompt
+    /// comes from stdin, and `--model` is passed only when set.
+    #[test]
+    fn antigravity_drafting_has_no_tools() {
+        let hooks = antigravity_lockdown_hooks();
+        let groups = hooks["maiestro-lockdown"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0]["matcher"], "*", "every tool");
+        let command = groups[0]["hooks"][0]["command"].as_str().unwrap();
+        // What the hook prints is exactly a deny decision (run it through sh).
+        let out = std::process::Command::new("sh").args(["-c", command]).output().unwrap();
+        assert!(out.status.success());
+        let decision: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(decision["decision"], "deny");
+        assert_eq!(hooks.as_object().unwrap().len(), 1, "no other hook groups");
+        assert!(antigravity_draft_dir().ends_with("antigravity-draft"), "a mAIestro-owned folder, not the repo");
+
+        let args = agy_draft_args(Some("gemini-3.8-flash-low"));
+        assert!(!args.iter().any(|a| a.contains("dangerously") || a == "-p" || a == "--print"), "{args:?}");
+        assert!(args.windows(2).any(|w| w == ["--input-format", "stream-json"]), "{args:?}");
+        assert!(args.contains(&"--disable-slash-commands".to_string()));
+        let i = args.iter().position(|a| a == "--model").unwrap();
+        assert_eq!(args[i + 1], "gemini-3.8-flash-low");
+        assert!(!agy_draft_args(None).iter().any(|a| a == "--model"));
+        assert!(!agy_draft_args(Some(" ")).iter().any(|a| a == "--model"));
+
+        let msg: serde_json::Value = serde_json::from_str(agy_stdin_message("hi \"there\"\nnext").trim()).unwrap();
+        assert_eq!(msg["event"], "user");
+        assert_eq!(msg["message"]["content"], "hi \"there\"\nnext");
+    }
+
+    /// The reply is the final result line's `response`; an error result gives
+    /// its first line (a bad model lists every model after it); an empty
+    /// SUCCESS (a print timeout) and a stream with no result are errors.
+    #[test]
+    fn parse_agy_result_reads_the_final_result() {
+        let ok = concat!(
+            r#"{"event":"init","conversation_id":"c","init":{"tools":[]}}"#, "\n",
+            r#"{"event":"step_update","step_update":{"text_delta":"x"}}"#, "\n",
+            r#"{"event":"result","result":{"status":"SUCCESS","response":"  Add foo\n"}}"#, "\n",
+        );
+        assert_eq!(parse_agy_result(ok).unwrap(), "Add foo");
+        let bad_model = r#"{"event":"result","result":{"status":"ERROR","response":"","error":"invalid model selection (--model \"x\"): not recognized\nAvailable models:\n  Gemini"}}"#;
+        assert_eq!(parse_agy_result(bad_model).unwrap_err(), r#"invalid model selection (--model "x"): not recognized"#);
+        let timed_out = r#"{"event":"result","result":{"status":"SUCCESS","response":""}}"#;
+        assert!(parse_agy_result(timed_out).unwrap_err().contains("empty reply"));
+        assert!(parse_agy_result("").is_err());
+        assert!(parse_agy_result("error: boom").is_err());
     }
 
     /// A bare label parses; quote/backtick/fence wrapping and trailing

@@ -1,7 +1,5 @@
 import { Agent, StatusRecord } from "../api";
-import { AGENT_NAMES } from "../lib/agents";
-import ClaudeIcon from "../icons/claude.svg?react";
-import OpenAIIcon from "../icons/openai.svg?react";
+import { AGENT_MARKS, AGENT_NAMES } from "../lib/agents";
 
 // How each status state renders in a work-item row. `running`/`idle` are quiet;
 // `busy` and `needs_you` draw attention. Anything else — no status yet, an
@@ -15,8 +13,8 @@ const STATUS_LABELS: Record<string, string> = {
   idle: "Idle",
 };
 
-// The agent session pill: the session's agent mark (the Claude logo, or the
-// OpenAI/GPT logo for Codex) tints by live state (green=working, amber=needs you,
+// The agent session pill: the session's agent mark (the Claude logo, the
+// OpenAI/GPT logo for Codex, the bell-shaped "A" for Antigravity) tints by live state (green=working, amber=needs you,
 // muted=ready/idle), with the status word beside it. Clicking jumps to where the
 // session lives — the worktree's VS Code window (there is no deep link to the
 // session itself). Always rendered: with no live status it reads "Idle".
@@ -41,7 +39,7 @@ export function AgentPill({
   // agent may still recover from doesn't. The error itself lives in the
   // dismissible row block, not this tooltip. (Codex never reports one.)
   const cls = `agent-pill agent-pill--${state}${state === "busy" ? " busy-ring busy-ring--ai" : ""}${live?.last_error?.surfaced ? " agent-pill--error" : ""}`;
-  const Mark = agent === "codex" ? OpenAIIcon : ClaudeIcon;
+  const Mark = AGENT_MARKS[agent] ?? AGENT_MARKS.claude;
   return (
     <button
       className={cls}

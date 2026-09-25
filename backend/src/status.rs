@@ -1,6 +1,6 @@
 //! Per-session live status: **busy / needs-you / idle**.
 //!
-//! mAIestro Code launches the repo's agent (`claude` or `codex`) into VS Code and
+//! mAIestro Code launches the repo's agent (`claude`, `codex` or `agy`) into VS Code and
 //! no longer owns its stdio (see CLAUDE.md → "mAIestro Code launches sessions; it
 //! does not host them"), so it can't read working/waiting state from the stream.
 //! Instead, each spawned worktree gets agent hooks (written by `hooks.rs`) that
@@ -97,6 +97,46 @@ fn is_safe_workspace_id(ws: &str) -> bool {
 
 // ── Hook CLI (`maiestro hook <state> --workspace <ws-id>`) ──────────────────────
 
+/// The tool a hook payload is about: Claude and Codex send `tool_name`,
+/// Antigravity a camelCase `toolCall.name`.
+fn tool_name(payload: &serde_json::Value) -> Option<String> {
+    payload["tool_name"]
+        .as_str()
+        .or_else(|| payload["toolCall"]["name"].as_str())
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+}
+
+/// A non-empty `error` string from an Antigravity `PostToolUse`/`Stop` payload
+/// (both always carry the field, as `""` when nothing went wrong).
+fn payload_error(payload: &serde_json::Value) -> Option<&str> {
+    payload["error"].as_str().map(str::trim).filter(|e| !e.is_empty())
+}
+
+/// Turn the verbs whose meaning depends on the payload into the ones below.
+/// Antigravity's events are coarser than Claude's, so its hooks pass these and
+/// the helper decides here:
+///
+/// - `invocation` (`PreInvocation`, before *every* model call): the first call
+///   of a turn (`invocationNum` 0) is a fresh `prompt` — clearing a stale error —
+///   and later ones are just `busy`.
+/// - `tool_done` (`PostToolUse`): `tool_failed` when it carries an `error`,
+///   else `tool_ok`.
+/// - `stop` (`Stop`): `idle` (its `error` is surfaced by `run_hook_cli`).
+///
+/// Every other verb passes through unchanged.
+fn normalize_verb<'a>(arg: &'a str, payload: &serde_json::Value) -> &'a str {
+    match arg {
+        "invocation" if payload["invocationNum"].as_u64().unwrap_or(0) == 0 => "prompt",
+        "invocation" => "busy",
+        "tool_done" if payload_error(payload).is_some() => "tool_failed",
+        "tool_done" => "tool_ok",
+        "stop" => "idle",
+        other => other,
+    }
+}
+
 /// Map the CLI state argument + the parsed hook payload into the record's
 /// `state` and `detail`. `notification` is the only one that inspects the
 /// payload to choose between waiting-on-permission and an idle nudge — both
@@ -107,37 +147,29 @@ fn resolve_state(arg: &str, payload: &serde_json::Value) -> (String, Option<Stri
         // UserPromptSubmit: a fresh turn. Same `busy` state as a running tool,
         // but its own verb so the helper can clear a stale `last_error`.
         "prompt" => ("busy".into(), None),
-        "busy" => {
-            // PreToolUse carries the tool name; UserPromptSubmit does not.
-            let detail = payload["tool_name"].as_str().map(|t| t.to_string());
-            ("busy".into(), detail)
-        }
+        // PreToolUse carries the tool name; UserPromptSubmit does not.
+        "busy" => ("busy".into(), tool_name(payload)),
         // A failed tool call. Claude keeps working after it, so the *state* stays
         // `busy`; the failure itself rides on `last_error` (set in run_hook_cli).
-        "tool_failed" => {
-            let detail = payload["tool_name"].as_str().map(|t| t.to_string());
-            ("busy".into(), detail)
-        }
+        "tool_failed" => ("busy".into(), tool_name(payload)),
         // PostToolUse: a tool *completed successfully*. Reads as `busy` like any
         // other working signal; its own verb (vs `busy`/PreToolUse) lets the
         // helper clear a pending `last_error` — Claude recovered and moved on.
-        "tool_ok" => {
-            let detail = payload["tool_name"].as_str().map(|t| t.to_string());
-            ("busy".into(), detail)
-        }
+        "tool_ok" => ("busy".into(), tool_name(payload)),
         // Claude's `Notification` carries a `message`. Codex has no such event
         // and fires this verb from `PermissionRequest`, whose payload names the
-        // tool instead — so fall back to that for the detail.
+        // tool instead — so fall back to that for the detail. Antigravity fires
+        // it from `PreToolUse` on its asking tools; an `ask_question` call shows
+        // its (first) question.
         "notification" => {
             let msg = payload["message"].as_str().unwrap_or("").trim();
+            let question = payload["toolCall"]["args"]["questions"][0]["question"].as_str().unwrap_or("").trim();
             let detail = if !msg.is_empty() {
                 Some(msg.to_string())
+            } else if !question.is_empty() {
+                Some(question.to_string())
             } else {
-                payload["tool_name"]
-                    .as_str()
-                    .map(str::trim)
-                    .filter(|t| !t.is_empty())
-                    .map(|t| format!("Permission requested: `{t}`"))
+                tool_name(payload).map(|t| format!("Permission requested: `{t}`"))
             };
             ("needs_you".into(), detail)
         }
@@ -204,9 +236,9 @@ pub fn run_hook_cli(args: &[String]) {
     // args = ["<state>", "--workspace", "<ws-id>"] (order-tolerant for the flag).
     // Codex hooks pass only the state: they must be identical for every worktree
     // (see hooks.rs), so the workspace comes from the payload's `cwd` instead.
-    let state_arg = args.first().map(|s| s.as_str()).unwrap_or("");
+    let raw_arg = args.first().map(|s| s.as_str()).unwrap_or("");
     let flag = args.iter().position(|a| a == "--workspace").and_then(|i| args.get(i + 1)).cloned();
-    if state_arg.is_empty() {
+    if raw_arg.is_empty() {
         return;
     }
 
@@ -215,6 +247,7 @@ pub fn run_hook_cli(args: &[String]) {
     let mut buf = String::new();
     let _ = std::io::stdin().read_to_string(&mut buf);
     let payload: serde_json::Value = serde_json::from_str(&buf).unwrap_or(serde_json::Value::Null);
+    let state_arg = normalize_verb(raw_arg, &payload);
 
     let workspace = match flag {
         Some(ws) => ws,
@@ -237,9 +270,15 @@ pub fn run_hook_cli(args: &[String]) {
     // tool+message to the decision fn (it computes the count and surfacing) and
     // then log the result — surfacing is gated, logging is not.
     let prior = read_record(&workspace).and_then(|r| r.last_error);
-    let failure = (state_arg == "tool_failed")
-        .then(|| (payload["tool_name"].as_str().map(|t| t.to_string()), extract_error_message(&payload)));
-    let last_error = next_last_error(state_arg, prior, failure, &ts);
+    let failure = (state_arg == "tool_failed").then(|| (tool_name(&payload), extract_error_message(&payload)));
+    let mut last_error = next_last_error(state_arg, prior, failure, &ts);
+    // An Antigravity turn that stopped *because of* an error: surface it.
+    if raw_arg == "stop" {
+        if let Some(error) = payload_error(&payload) {
+            last_error = Some(stop_error(error, &ts));
+            crate::logging::append_line(&format!("session={workspace} agent stopped with an error: {error}"));
+        }
+    }
     if state_arg == "tool_failed" {
         if let Some(err) = &last_error {
             crate::logging::append_line(&format!(
@@ -254,14 +293,21 @@ pub fn run_hook_cli(args: &[String]) {
     let record = StatusRecord {
         workspace: workspace.clone(),
         state,
-        session_id: payload["session_id"].as_str().map(|s| s.to_string()),
-        cwd: payload["cwd"].as_str().map(|s| s.to_string()),
+        // Antigravity: `conversationId`, and `workspacePaths` instead of `cwd`.
+        session_id: payload["session_id"].as_str().or_else(|| payload["conversationId"].as_str()).map(str::to_string),
+        cwd: payload["cwd"].as_str().or_else(|| payload["workspacePaths"][0].as_str()).map(str::to_string),
         detail,
         last_error,
         ts,
     };
 
     let _ = write_record_atomic(&record);
+}
+
+/// The `last_error` for an Antigravity `Stop` that carried an `error`: surfaced
+/// at once, since the agent has already stopped.
+fn stop_error(error: &str, ts: &str) -> ToolError {
+    ToolError { tool: None, message: redact_secrets(error), ts: ts.to_string(), count: 1, surfaced: true }
 }
 
 /// The workspace whose worktree contains `cwd` — the session's own directory or
@@ -844,5 +890,43 @@ mod tests {
         run_hook_cli(&["prompt".into(), "--workspace".into(), "12-merge".into()]);
         let cleared = read_record("12-merge").expect("record after prompt");
         assert!(cleared.last_error.is_none(), "new turn clears the error");
+    }
+
+    /// Antigravity's payload-dependent verbs: the first model call of a turn is a
+    /// fresh prompt and later ones are busy; a PostToolUse is ok unless it
+    /// carries an error; Stop is idle. Other verbs pass through.
+    #[test]
+    fn normalize_verb_reads_the_antigravity_payload() {
+        use serde_json::json;
+        assert_eq!(normalize_verb("invocation", &json!({ "invocationNum": 0 })), "prompt");
+        assert_eq!(normalize_verb("invocation", &json!({ "invocationNum": 2 })), "busy");
+        assert_eq!(normalize_verb("invocation", &json!(null)), "prompt");
+        assert_eq!(normalize_verb("tool_done", &json!({ "error": "" })), "tool_ok");
+        assert_eq!(normalize_verb("tool_done", &json!({ "error": "exit status 1" })), "tool_failed");
+        assert_eq!(normalize_verb("stop", &json!({ "error": "" })), "idle");
+        assert_eq!(normalize_verb("busy", &json!({})), "busy");
+    }
+
+    /// Antigravity's camelCase payload: the tool name comes from `toolCall.name`,
+    /// an `ask_question` notification shows its question, and a failure message
+    /// comes from `error`.
+    #[test]
+    fn resolve_state_reads_antigravity_payloads() {
+        use serde_json::json;
+        let post = json!({ "toolCall": { "name": "run_command", "args": {} }, "error": "exit status 1", "workspacePaths": ["/w"] });
+        assert_eq!(resolve_state("tool_failed", &post), ("busy".into(), Some("run_command".into())));
+        assert_eq!(extract_error_message(&post), "exit status 1");
+        let ask = json!({ "toolCall": { "name": "ask_question", "args": { "questions": [{ "question": "Red or blue?", "options": ["Red", "Blue"] }] } } });
+        assert_eq!(resolve_state("notification", &ask), ("needs_you".into(), Some("Red or blue?".into())));
+        let perm = json!({ "toolCall": { "name": "ask_permission", "args": {} } });
+        assert_eq!(resolve_state("notification", &perm), ("needs_you".into(), Some("Permission requested: `ask_permission`".into())));
+    }
+
+    /// A Stop that carried an error surfaces it right away, redacted.
+    #[test]
+    fn stop_error_is_surfaced() {
+        let e = stop_error("fetch https://u:secret@host/x failed", "t");
+        assert!(e.surfaced && e.tool.is_none());
+        assert_eq!(e.message, "fetch https://***@host/x failed");
     }
 }
