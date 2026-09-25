@@ -5,7 +5,7 @@
 // machine-managed) and two custom renderers the schema alone can't express:
 //   - Theme: the segmented light/dark/system control (a plain enum would render
 //     as a dropdown).
-//   - Agent: a segmented Claude Code / Codex CLI control, the default for repos
+//   - Default Agent: a Claude Code / Codex CLI dropdown, the default for repos
 //     that don't pick their own.
 //   - Tool paths: one input per CLI (claude/codex/git/code, from the schema) with
 //     a live resolved-path status line.
@@ -116,9 +116,11 @@ function ThemeControl(props: ControlProps) {
 export const themeTester = rankWith(20, scopeEndsWith("theme"));
 export const ThemeRenderer = withJsonFormsControlProps(ThemeControl);
 
-// ── Agent (segmented control) ────────────────────────────────────────────────
-// Stored value is "claude" | "codex" | null; null is the schema default. Picking
-// the default explicitly is stored as-is — it only matters if the default moves.
+// ── Default agent (dropdown) ─────────────────────────────────────────────────
+// Stored value is "claude" | "codex" | null; null shows as the schema default.
+// Same select as the per-repo Agent field, minus its "Use global default"
+// option — this *is* the global default. Picking the default explicitly is
+// stored as-is; it only matters if the schema default moves.
 
 function AgentControl(props: ControlProps) {
   const { data, handleChange, path, label, description, config } = props;
@@ -127,29 +129,18 @@ function AgentControl(props: ControlProps) {
     <div className="control jsf-control">
       <label className="jsf-label">{label}</label>
       {description && <div className="jsf-help">{description}</div>}
-      <div className="theme-options" role="radiogroup" aria-label="Default Agent">
-        {AGENTS.map((opt, idx) => (
-          <button
-            key={opt}
-            className={`theme-option ${value === opt ? "active" : ""}`}
-            role="radio"
-            aria-checked={value === opt}
-            tabIndex={value === opt ? 0 : -1}
-            onKeyDown={(e) => {
-              const dir = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
-                : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-              if (!dir) return;
-              e.preventDefault();
-              const next = (idx + dir + AGENTS.length) % AGENTS.length;
-              handleChange(path, AGENTS[next]);
-              (e.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
-            }}
-            onClick={() => handleChange(path, opt)}
-          >
-            {AGENT_PRODUCTS[opt]}
-          </button>
+      <select
+        className="text-input profile-select"
+        value={value}
+        aria-label={label}
+        onChange={(e) => handleChange(path, e.target.value)}
+      >
+        {AGENTS.map((a) => (
+          <option key={a} value={a}>
+            {AGENT_PRODUCTS[a]}
+          </option>
         ))}
-      </div>
+      </select>
       <p className="session-hint" style={{ paddingTop: 2 }}>
         Each repo can override this in its own settings.
       </p>
