@@ -51,21 +51,12 @@ logged in.
 [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag
 **mAIestro Code** to Applications.
 
-**2. Install an agentic coding CLI and log in.** mAIestro Code launches it into
-every workspace and uses it to draft issues, labels, and PRs. For Claude Code:
-
-```bash
-curl -fsSL https://claude.ai/install.sh | bash
-claude             # log in on first run
-```
-
-To use Codex or Antigravity instead, install it (below), then pick it under
-**General → Default Agentic Coding CLI**, or per repo in that repo's settings.
+**2. Install an agentic coding CLI and log in.**
 
 <details>
-<summary>More on Claude Code: Homebrew install, account requirements, troubleshooting</summary>
+<summary>Claude Code</summary>
 
-Either installer works:
+Claude Code is the default. Either installer works:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash   # native installer
@@ -88,7 +79,7 @@ misbehaves, or run `claude doctor`.
 </details>
 
 <details>
-<summary>Using Codex CLI</summary>
+<summary>Codex</summary>
 
 Install it, then log in:
 
@@ -97,6 +88,9 @@ curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex --version   # 0.133.0 or newer
 codex login
 ```
+
+Then pick it under **General → Default Agentic Coding CLI**, or per repo in
+that repo's settings.
 
 Codex sessions differ in a few ways. The Codex session doesn't take the
 worktree's name or color; the VS Code bars are still colored. The first time a
@@ -108,7 +102,7 @@ errors, so the pill never turns red for those.
 </details>
 
 <details>
-<summary>Using Antigravity CLI</summary>
+<summary>Google Antigravity</summary>
 
 Antigravity CLI (`agy`) is Google's terminal agent. Install it, then run it
 once to sign in with your Google account:
@@ -118,6 +112,9 @@ curl -fsSL https://antigravity.google/cli/install.sh | bash   # or: brew install
 agy --version   # 1.2.10 or newer
 agy             # sign in on first run
 ```
+
+Then pick it under **General → Default Agentic Coding CLI**, or per repo in
+that repo's settings.
 
 Antigravity sessions differ in a few ways:
 - The session doesn't take the worktree's name or color, though the VS Code bars
