@@ -64,7 +64,7 @@
     },
     "launch_at_login": {
       "type": ["boolean", "null"],
-      "description": "Whether to launch mAIestro Code automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the Preferences panel. null/absent = false."
+      "description": "Whether to launch mAIestro Code automatically when the user logs in, via a per-user LaunchAgent (~/Library/LaunchAgents/mAIestro.plist). Toggled in the General settings panel. null/absent = false."
     },
     "onboarding_completed": {
       "type": ["boolean", "null"],

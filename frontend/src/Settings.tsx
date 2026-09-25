@@ -56,7 +56,9 @@ function SettingsLoadError({ lead, message, hint }: { lead: string; message: str
 }
 
 export function Settings() {
-  const [selection, setSelection] = useState<SettingsSelection>(null);
+  // General is the landing panel: the window opens on it, and removing the
+  // selected identity or repo falls back to it.
+  const [selection, setSelection] = useState<SettingsSelection>({ kind: "preferences" });
   const [identitiesOpen, setIdentitiesOpen] = useState(true);
   const [reposOpen, setReposOpen] = useState(true);
   const [addingIdentityInline, setAddingIdentityInline] = useState(false);
@@ -143,7 +145,6 @@ export function Settings() {
     });
     api.listRepos().then(setRepos);
     api.identitiesList().then(setKnownIdentities);
-    api.getDefaultIdentity().then((id) => { if (id) setSelection({ kind: "identity", id }); });
     api.repoSettingsSchema().then((s) => {
       setRepoFormDefaults(extractFormDefaults(s));
       setRepoSchema(sanitizeSchemaForForm(s));
@@ -334,7 +335,7 @@ export function Settings() {
     try {
       await api.identitiesRemove(id);
       setKnownIdentities((prev) => prev.filter((i) => i !== id));
-      setSelection(null);
+      setSelection({ kind: "preferences" });
     } catch (e) {
       setIdentityRemoveError(String(e));
     }
@@ -393,7 +394,7 @@ export function Settings() {
     try {
       await api.removeRepo(repo);
       setRepos((prev) => prev.filter((r) => r !== repo));
-      setSelection(null);
+      setSelection({ kind: "preferences" });
     } catch (e) {
       setRepoRemoveError(String(e));
     }
@@ -497,6 +498,16 @@ export function Settings() {
         <div className="settings-sidebar">
           <div className="settings-tree">
 
+            {/* General (global app settings) — non-expandable leaf */}
+            <div className="tree-section">
+              <button
+                className={`tree-item tree-item--preferences${selection?.kind === "preferences" ? " tree-item--selected" : ""}`}
+                onClick={() => setSelection({ kind: "preferences" })}
+              >
+                General
+              </button>
+            </div>
+
             {/* Identities section */}
             <div className="tree-section">
               <div className="tree-section-header">
@@ -589,16 +600,6 @@ export function Settings() {
               )}
             </div>
 
-            {/* Preferences — non-expandable leaf */}
-            <div className="tree-section">
-              <button
-                className={`tree-item tree-item--preferences${selection?.kind === "preferences" ? " tree-item--selected" : ""}`}
-                onClick={() => setSelection({ kind: "preferences" })}
-              >
-                Preferences
-              </button>
-            </div>
-
           </div>
         </div>
 
@@ -620,7 +621,7 @@ export function Settings() {
                 <SettingsLoadError
                   lead="Couldn't load settings:"
                   message={appLoadError}
-                  hint="Fix ~/.maiestro/settings.json by hand, then reopen Preferences."
+                  hint="Fix ~/.maiestro/settings.json by hand, then reopen General."
                 />
               ) : appSchema && appSettings ? (
                 <div className="jsf-root">

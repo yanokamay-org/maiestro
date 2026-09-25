@@ -51,7 +51,7 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 coding agent into every workspace it creates and uses it to draft issues, labels,
 and PRs, so it has to be installed and logged in first. You need **one** of the
 two, not both. Claude Code is the default. To use Codex, pick it under
-**Preferences → Default Agent**, or per repo in that repo's settings.
+**General → Default Agent**, or per repo in that repo's settings.
 
 *Claude Code* — either installer works:
 
@@ -177,7 +177,7 @@ prerequisites in one pass and streams the results:
 - **Cloned repo exists** — `cloned_repo_dir` is a git repo whose `origin`
   really points at this `owner/name`.
 - **Git available** and **Session editor available** — the `git` and VS Code
-  `code` CLIs resolve (pin them under **Preferences → Tool paths** if not).
+  `code` CLIs resolve (pin them under **General → Tool paths** if not).
 - **Claude logged in** (or **Codex logged in**, for a Codex repo), with a
   **model available** sub-check — a real probe of the repo's drafting model, so
   a login problem and a bad model name are reported separately. Only the repo's

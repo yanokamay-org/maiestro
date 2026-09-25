@@ -161,7 +161,7 @@ export function Onboarding() {
               Get started
             </button>
           </div>
-          <p className="onboarding-foot">You can change these anytime in Settings › Preferences.</p>
+          <p className="onboarding-foot">You can change these anytime in Settings › General.</p>
         </>
       )}
     </main>
@@ -169,7 +169,7 @@ export function Onboarding() {
 }
 
 /** One toggle-able onboarding preference: a label + hint on the left, an on/off
- *  switch (shared `.toggle-switch` styling with the Preferences panel) on the right. */
+ *  switch (shared `.toggle-switch` styling with the General panel) on the right. */
 function OnboardingOption({
   label,
   hint,
