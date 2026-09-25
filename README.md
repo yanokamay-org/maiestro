@@ -56,80 +56,80 @@ logged in.
 <details>
 <summary>Claude Code</summary>
 
-Claude Code is the default. Either installer works:
-
-```bash
-curl -fsSL https://claude.ai/install.sh | bash   # native installer
-brew install --cask claude-code                  # or via Homebrew
-```
-
-Then check it and log in — run `claude` once and follow the browser prompt:
-
-```bash
-claude --version   # prints e.g. 2.1.266 (Claude Code)
-claude             # log in on first run; /login inside a session re-runs it
-```
-
-Claude Code needs a Pro, Max, Team, Enterprise, or Console account; the free
-Claude.ai plan does not include it. mAIestro Code stores no API key of its own —
-sessions run under your `claude` login. See the
-[Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
-misbehaves, or run `claude doctor`.
+> Claude Code is the default. Either installer works:
+>
+> ```bash
+> curl -fsSL https://claude.ai/install.sh | bash   # native installer
+> brew install --cask claude-code                  # or via Homebrew
+> ```
+>
+> Then check it and log in — run `claude` once and follow the browser prompt:
+>
+> ```bash
+> claude --version   # prints e.g. 2.1.266 (Claude Code)
+> claude             # log in on first run; /login inside a session re-runs it
+> ```
+>
+> Claude Code needs a Pro, Max, Team, Enterprise, or Console account; the free
+> Claude.ai plan does not include it. mAIestro Code stores no API key of its own —
+> sessions run under your `claude` login. See the
+> [Claude Code setup docs](https://code.claude.com/docs/en/setup) if the install
+> misbehaves, or run `claude doctor`.
 
 </details>
 
 <details>
 <summary>Codex</summary>
 
-Install it, then log in:
-
-```bash
-curl -fsSL https://chatgpt.com/codex/install.sh | sh
-codex --version   # 0.133.0 or newer
-codex login
-```
-
-Then pick it under **General → Default Agentic Coding CLI**, or per repo in
-that repo's settings.
-
-Codex sessions differ in a few ways. The Codex session doesn't take the
-worktree's name or color; the VS Code bars are still colored. The first time a
-Codex session starts, Codex asks you to review mAIestro Code's status hooks:
-choose **trust all**. That one approval covers every workspace from
-then on, including after mAIestro Code updates. Codex reports no failed-tool
-errors, so the pill never turns red for those.
+> Install it, then log in:
+>
+> ```bash
+> curl -fsSL https://chatgpt.com/codex/install.sh | sh
+> codex --version   # 0.133.0 or newer
+> codex login
+> ```
+>
+> Then pick it under **General → Default Agentic Coding CLI**, or per repo in
+> that repo's settings.
+>
+> Codex sessions differ in a few ways. The Codex session doesn't take the
+> worktree's name or color; the VS Code bars are still colored. The first time a
+> Codex session starts, Codex asks you to review mAIestro Code's status hooks:
+> choose **trust all**. That one approval covers every workspace from
+> then on, including after mAIestro Code updates. Codex reports no failed-tool
+> errors, so the pill never turns red for those.
 
 </details>
 
 <details>
 <summary>Google Antigravity</summary>
 
-Antigravity CLI (`agy`) is Google's terminal agent. Install it, then run it
-once to sign in with your Google account:
-
-```bash
-curl -fsSL https://antigravity.google/cli/install.sh | bash   # or: brew install --cask antigravity-cli
-agy --version   # 1.2.10 or newer
-agy             # sign in on first run
-```
-
-Then pick it under **General → Default Agentic Coding CLI**, or per repo in
-that repo's settings.
-
-Antigravity sessions differ in a few ways:
-- The session doesn't take the worktree's name or color, though the VS Code bars
-  are still colored.
-- Each new workspace starts with Antigravity's own "Do you trust the contents of
-  this project?" prompt. Answer yes, or its status hooks won't load.
-- Antigravity has no hook for its permission prompts, so the pill shows
-  **Needs you** only when the agent asks you a question, and it stays
-  **Working** after you press Esc until your next prompt.
-- Drafting uses `gemini-3.8-flash-low` unless you pick another id from
-  `agy models`.
-- mAIestro Code's status hooks live in the worktree's `.agents/hooks.json`,
-  which must never be committed. If the worktree's `.gitignore` doesn't already
-  ignore it, mAIestro Code appends the line and tells you on the work item.
-  Commit that `.gitignore` change along with your work.
+> Antigravity CLI (`agy`) is Google's terminal agent. Install it, then run it
+> once to sign in with your Google account:
+>
+> ```bash
+> curl -fsSL https://antigravity.google/cli/install.sh | bash   # or: brew install --cask antigravity-cli
+> agy --version   # 1.2.10 or newer
+> agy             # sign in on first run
+> ```
+>
+> Then pick it under **General → Default Agentic Coding CLI**, or per repo in
+> that repo's settings.
+>
+> Antigravity sessions differ in a few ways:
+> - The session doesn't take the worktree's name or color, though the VS Code bars
+>   are still colored.
+> - Each new workspace starts with Antigravity's own "Do you trust the contents of
+>   this project?" prompt. Answer yes, or its status hooks won't load.
+> - Antigravity has no hook for its permission prompts, so the pill shows
+>   **Needs you** only when the agent asks you a question, and it stays
+>   **Working** after you press Esc until your next prompt.
+> - Drafting uses `gemini-3.8-flash-low` unless you pick another id from
+>   `agy models`.
+> - mAIestro Code's status hooks live in the worktree's `.agents/hooks.json`,
+>   which must never be committed. If the worktree's `.gitignore` doesn't already
+>   ignore it, mAIestro Code appends the line and tells you on the work item.
+>   Commit that `.gitignore` change along with your work.
 
 </details>
 
@@ -144,14 +144,14 @@ gh auth login      # choose HTTPS and "authenticate Git with your credentials"
 <details>
 <summary>Why this is needed, and how it relates to mAIestro Code's own GitHub access</summary>
 
-Spawned sessions push branches and fetch under your *ambient* git auth, not
-through mAIestro Code. Make sure `git` is there (`git --version` prompts to
-install the Xcode Command Line Tools if it isn't); `gh auth login` also sets up
-git's credential helper.
-
-mAIestro Code itself never shells out to `gh` — its own API calls use the token you
-save in [GitHub token](#github-token) below. `gh auth login` is for the git
-operations that happen *inside* a spawned session.
+> Spawned sessions push branches and fetch under your *ambient* git auth, not
+> through mAIestro Code. Make sure `git` is there (`git --version` prompts to
+> install the Xcode Command Line Tools if it isn't); `gh auth login` also sets up
+> git's credential helper.
+>
+> mAIestro Code itself never shells out to `gh` — its own API calls use the token you
+> save in [GitHub token](#github-token) below. `gh auth login` is for the git
+> operations that happen *inside* a spawned session.
 
 </details>
 
@@ -208,20 +208,20 @@ recommended kind:
 <details>
 <summary>Optional permissions, classic tokens, and how the token is used</summary>
 
-Add **Workflows** if PRs will touch `.github/workflows/`, and **Merge
-queues** on a repo that merges through a queue — GitHub refuses those merges
-otherwise. **Actions** and **Commit statuses** are *not* needed: the PR
-pill's checks dot comes from the pull request's own `mergeable_state`, not
-the Checks or Statuses APIs, so a token without them still shows check
-state correctly.
-
-A **classic** token works too — it needs the `repo` scope (`public_repo` is
-enough for a public repo).
-
-Whichever kind you use, mAIestro Code never injects it into a spawned session;
-sessions push and fetch under your ambient git auth from `gh auth login`. The
-health check below verifies the token without ever creating a throwaway issue
-or PR to test it.
+> Add **Workflows** if PRs will touch `.github/workflows/`, and **Merge
+> queues** on a repo that merges through a queue — GitHub refuses those merges
+> otherwise. **Actions** and **Commit statuses** are *not* needed: the PR
+> pill's checks dot comes from the pull request's own `mergeable_state`, not
+> the Checks or Statuses APIs, so a token without them still shows check
+> state correctly.
+>
+> A **classic** token works too — it needs the `repo` scope (`public_repo` is
+> enough for a public repo).
+>
+> Whichever kind you use, mAIestro Code never injects it into a spawned session;
+> sessions push and fetch under your ambient git auth from `gh auth login`. The
+> health check below verifies the token without ever creating a throwaway issue
+> or PR to test it.
 
 </details>
 
@@ -235,21 +235,21 @@ copy-pasteable fix.
 <details>
 <summary>What it checks</summary>
 
-- **Cloned repo exists** — `cloned_repo_dir` is a git repo whose `origin`
-  really points at this `owner/name`.
-- **Git available** and **Session editor available** — the `git` and VS Code
-  `code` CLIs resolve (pin them under **General → Tool paths** if not).
-- **Claude logged in** (or **Codex logged in** / **Antigravity logged in**, for
-  a repo on that agentic coding CLI), with a **model available** sub-check — a
-  real probe of the repo's drafting model (for Antigravity, a check against
-  `agy models`), so a login problem and a bad model name are reported
-  separately. Only the repo's own agentic coding CLI is checked, so a machine
-  with just one agentic coding CLI installed gets a clean report.
-- **GitHub token & permissions** — the token is valid, the repo is readable,
-  and the token can push. This is derived from the scopes and permissions
-  GitHub reports; mAIestro Code never creates a throwaway issue or PR to test.
-- **Configured env files exist** and **Terminal font installed** — advisory
-  warnings, not failures.
+> - **Cloned repo exists** — `cloned_repo_dir` is a git repo whose `origin`
+>   really points at this `owner/name`.
+> - **Git available** and **Session editor available** — the `git` and VS Code
+>   `code` CLIs resolve (pin them under **General → Tool paths** if not).
+> - **Claude logged in** (or **Codex logged in** / **Antigravity logged in**, for
+>   a repo on that agentic coding CLI), with a **model available** sub-check — a
+>   real probe of the repo's drafting model (for Antigravity, a check against
+>   `agy models`), so a login problem and a bad model name are reported
+>   separately. Only the repo's own agentic coding CLI is checked, so a machine
+>   with just one agentic coding CLI installed gets a clean report.
+> - **GitHub token & permissions** — the token is valid, the repo is readable,
+>   and the token can push. This is derived from the scopes and permissions
+>   GitHub reports; mAIestro Code never creates a throwaway issue or PR to test.
+> - **Configured env files exist** and **Terminal font installed** — advisory
+>   warnings, not failures.
 
 </details>
 
