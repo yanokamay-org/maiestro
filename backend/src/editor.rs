@@ -358,16 +358,21 @@ pub async fn focus_or_open(path: &Path) -> Result<(), String> {
 /// host. Unlike `session_open_in_editor` this is a pure launch — no worktree,
 /// no session, no status, no agent: VS Code goes through the same `open_vscode`
 /// path as spawned worktrees, Terminal.app gets a plain shell window there
-/// (`terminal_app::open_folder`), and cmux a plain workspace (`cmux::open_folder`).
+/// (`terminal_app::open_folder`), cmux a plain workspace (`cmux::open_folder`),
+/// and Windows Terminal a plain tab (`windows_terminal::open_folder`).
 #[tauri::command]
 pub async fn open_repo_in_editor(repo: String) -> Result<(), String> {
     crate::log_invoke!("open_repo_in_editor", repo = %repo);
-    let settings = crate::repo_settings::repo_settings_get(repo)?;
+    let settings = crate::repo_settings::repo_settings_get(repo.clone())?;
     let cloned_repo = crate::repo_context::validated_cloned_repo(&settings)?;
     match crate::repo_settings::effective_terminal_host(&settings) {
         crate::terminal_host::TerminalHost::Vscode => open_vscode(&cloned_repo),
         crate::terminal_host::TerminalHost::TerminalApp => crate::terminal_app::open_folder(&cloned_repo),
         crate::terminal_host::TerminalHost::Cmux => crate::cmux::open_folder(&cloned_repo),
+        crate::terminal_host::TerminalHost::WindowsTerminal => {
+            let window = crate::windows_terminal::folder_window_name(crate::app_settings::terminal_layout(), &repo);
+            crate::windows_terminal::open_folder(&cloned_repo, &window).await
+        }
     }
 }
 

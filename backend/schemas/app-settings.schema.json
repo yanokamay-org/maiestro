@@ -36,15 +36,15 @@
     },
     "terminal_host": {
       "type": ["string", "null"],
-      "enum": ["vscode", "terminal_app", "cmux", null],
+      "enum": ["vscode", "terminal_app", "cmux", "windows_terminal", null],
       "default": "vscode",
-      "description": "The terminal host repos run their sessions' agent in unless they choose their own: a VS Code window (`vscode`) or, on macOS, its own Terminal.app window (`terminal_app`) or a cmux workspace (`cmux`). Changing it moves those repos' existing sessions too, closing their open windows first (you're asked before any is closed)."
+      "description": "The terminal host repos run their sessions' agent in unless they choose their own: a VS Code window (`vscode`), or, on macOS, its own Terminal.app window (`terminal_app`) or a cmux workspace (`cmux`), or, on Windows, a Windows Terminal tab (`windows_terminal`). Changing it moves those repos' existing sessions too, closing their open windows first (you're asked before any is closed)."
     },
     "terminal_layout": {
       "type": ["string", "null"],
       "enum": ["windows", "per-repo", "tabs", null],
       "default": "per-repo",
-      "description": "How a terminal host that can group sessions arranges them (cmux): a window per session (`windows`), one window per repo with its sessions as tabs (`per-repo`), or every session as a tab in one shared window (`tabs`). Applies to new sessions only. Terminal.app always opens a window per session, and VS Code a window per worktree."
+      "description": "How a terminal host that can group sessions arranges them (cmux on macOS, Windows Terminal on Windows): a window per session (`windows`), one window per repo with its sessions as tabs (`per-repo`), or every session as a tab in one shared window (`tabs`). Applies to new sessions only. Terminal.app always opens a window per session, and VS Code a window per worktree."
     },
     "tool_paths": {
       "type": ["object", "null"],
@@ -78,6 +78,10 @@
         "cmux": {
           "type": ["string", "null"],
           "description": "The cmux command-line tool, used to open, focus and close the cmux workspaces of repos whose terminal host is cmux. Leave empty to auto-detect (the one inside cmux.app)."
+        },
+        "wt": {
+          "type": ["string", "null"],
+          "description": "Windows Terminal (`wt.exe`), used to open the tabs of repos whose terminal host is Windows Terminal. Leave empty to auto-detect (its app execution alias)."
         }
       }
     },

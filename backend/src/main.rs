@@ -39,6 +39,7 @@ mod theming;
 mod tools;
 mod tray_visibility;
 mod update_check;
+mod windows_terminal;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -366,7 +367,9 @@ fn watch_popover_foreground(window: tauri::Window) {
             if !window.is_visible().unwrap_or(false) {
                 break;
             }
-            if !popover_is_foreground(&window) {
+            // While a Windows Terminal tab closes, its window may take the
+            // foreground for a moment; the close hands it back afterwards.
+            if !popover_is_foreground(&window) && !windows_terminal::focus_held() {
                 auto_hide_popover(&window);
                 break;
             }
@@ -684,7 +687,7 @@ fn main() {
             "main" => {
                 if let WindowEvent::Focused(false) = event {
                     #[cfg(target_os = "windows")]
-                    if popover_is_foreground(window) {
+                    if popover_is_foreground(window) || windows_terminal::focus_held() {
                         watch_popover_foreground(window.clone());
                         return;
                     }

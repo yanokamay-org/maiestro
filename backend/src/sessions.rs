@@ -13,6 +13,7 @@ use crate::terminal_host::TerminalHost;
 use crate::repo_settings::HideState;
 use crate::cmux::CmuxWorkspace;
 use crate::terminal_app::TerminalAppWindow;
+use crate::windows_terminal::WtTab;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
@@ -66,6 +67,11 @@ pub struct Session {
     /// workspace closes; `cmux::probe` tells.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cmux_workspace: Option<CmuxWorkspace>,
+    /// The Windows Terminal tab the session last opened in (`terminal_host` =
+    /// Windows Terminal), so reopening can select it and teardown can close
+    /// it. Stale once that tab closes; `windows_terminal::probe` tells.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_terminal_tab: Option<WtTab>,
     /// Hide/snooze state for this work item. `None` = visible. Snooze expiry is
     /// resolved on the frontend at render time.
     #[serde(default)]

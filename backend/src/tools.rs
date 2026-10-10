@@ -1,5 +1,5 @@
 //! Resolving the external CLIs mAIestro Code invokes **directly** — the agent CLIs
-//! `claude`, `codex`, `agy` (Antigravity) and `copilot` (GitHub Copilot), `git`, the VS Code `code` CLI and the `cmux` CLI — robustly, even when the app is launched from the
+//! `claude`, `codex`, `agy` (Antigravity) and `copilot` (GitHub Copilot), `git`, the VS Code `code` CLI, the `cmux` CLI and Windows Terminal's `wt` — robustly, even when the app is launched from the
 //! packaged bundle (`/Applications/mAIestro Code.app/…`).
 //!
 //! The problem: at login, macOS Launch Services starts the app with a **minimal
@@ -266,6 +266,9 @@ fn fallbacks(name: &str) -> Vec<PathBuf> {
             PathBuf::from("/Applications/cmux.app/Contents/Resources/bin/cmux"),
             home().join("Applications/cmux.app/Contents/Resources/bin/cmux"),
         ],
+        // Windows Terminal's app execution alias. It is a reparse point, but
+        // `is_file()` is true for it and `Command` spawns it as is.
+        "wt" => windows_local_fallback(r"Microsoft\WindowsApps\wt").into_iter().collect(),
         _ => Vec::new(),
     }
 }
@@ -503,8 +506,20 @@ pub fn shell_quote(s: &str) -> String {
 
 /// The directly-invoked tools whose resolution the Settings UI surfaces.
 /// Every agent is listed so any can be pinned; nothing *resolves* an agent's
-/// binary for real work unless a repo actually uses that agent.
-const TOOLS: &[&str] = &["claude", "codex", "agy", "copilot", "git", "code", "cmux"];
+/// binary for real work unless a repo actually uses that agent. A terminal
+/// host's own tool is listed only where that host exists ([`listed_here`]).
+const TOOLS: &[&str] = &["claude", "codex", "agy", "copilot", "git", "code", "cmux", "wt"];
+
+/// Whether `tool` belongs on this OS's Tool paths list: a terminal host's tool
+/// only where that host is supported, everything else everywhere.
+fn listed_here(tool: &str) -> bool {
+    use crate::terminal_host::TerminalHost;
+    match tool {
+        "cmux" => TerminalHost::Cmux.supported_here(),
+        "wt" => TerminalHost::WindowsTerminal.supported_here(),
+        _ => true,
+    }
+}
 
 /// One tool's resolution result, for the Settings "Tool paths" status line.
 #[derive(serde::Serialize)]
@@ -523,6 +538,7 @@ pub fn tools_resolved() -> Vec<ResolvedTool> {
     crate::log_invoke_debug!("tools_resolved");
     TOOLS
         .iter()
+        .filter(|t| listed_here(t))
         .map(|t| {
             let (path, exists) = resolved_status(t);
             ResolvedTool { tool: (*t).to_string(), path, exists }
@@ -714,6 +730,30 @@ mod tests {
         assert_eq!(which_on(&only_shim, "copilot"), None, "the shim alone is not found");
         assert_eq!(copilot_shim_on(&only_shim), Some(shim.join(copilot_file())));
         assert_eq!(copilot_shim_on(&real.to_string_lossy()), None);
+    }
+
+    /// Windows Terminal's app execution alias is probed on Windows only.
+    #[test]
+    fn wt_fallback_is_the_app_execution_alias() {
+        let f = fallbacks("wt");
+        if cfg!(target_os = "windows") {
+            let alias = dirs::data_local_dir().unwrap().join(r"Microsoft\WindowsApps\wt");
+            assert_eq!(f, [alias]);
+        } else {
+            assert!(f.is_empty());
+        }
+    }
+
+    /// Settings lists each terminal host's tool only on its own OS; the agents,
+    /// `git` and `code` everywhere.
+    #[test]
+    fn terminal_host_tools_are_listed_only_where_they_run() {
+        let listed: Vec<&str> = TOOLS.iter().copied().filter(|t| listed_here(t)).collect();
+        for t in ["claude", "codex", "agy", "copilot", "git", "code"] {
+            assert!(listed.contains(&t), "{t}");
+        }
+        assert_eq!(listed.contains(&"cmux"), cfg!(target_os = "macos"));
+        assert_eq!(listed.contains(&"wt"), cfg!(target_os = "windows"));
     }
 
     #[test]

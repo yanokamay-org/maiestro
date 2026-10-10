@@ -265,7 +265,8 @@ copy-pasteable fix.
 >   repo whose sessions open in Terminal.app, that Terminal is there and
 >   mAIestro Code is allowed to control it (Automation); for a cmux repo, that
 >   cmux is installed and its Socket Control Mode (cmux Settings → Automation)
->   is Automation or Password.
+>   is Automation or Password; for a Windows Terminal repo, that `wt.exe` is
+>   there (checked without opening a window).
 > - **Claude logged in** (or **Codex logged in** / **Antigravity logged in** /
 >   **Copilot logged in**, for a repo on that agentic coding CLI), with a
 >   **model available** sub-check — a real probe of the repo's drafting model
@@ -293,7 +294,7 @@ An annotated tour of the popover (illustrative diagram, not a screenshot):
    and workspaces; the gear opens the Settings window (identities, repos,
    appearance).
 2. **Repo group** — one section per tracked repo, with a button to open its
-   checkout in VS Code (or in Terminal or cmux, for a repo that uses one) and, beside it, the mark of the repo's agentic coding
+   checkout in VS Code (or in Terminal, cmux or Windows Terminal, for a repo that uses one) and, beside it, the mark of the repo's agentic coding
    CLI — click it to switch the agent new work items start with.
 3. **Start Work** — opens the issue picker for this repo (next diagram).
 4. **Agent status pill** — the Claude or OpenAI logo with the session's live state, fed by the agent's hooks:
@@ -312,6 +313,9 @@ An annotated tour of the popover (illustrative diagram, not a screenshot):
    where each session is a named workspace in the worktree's color, grouped
    into windows by the **Terminal layout** setting (one window per repo by
    default). cmux needs its Socket Control Mode set to Automation or Password.
+   On Windows, a repo can use Windows Terminal instead, where each session is
+   a tab titled after the repo and session and colored with the worktree's
+   color, grouped into windows by the same **Terminal layout** setting.
 8. **Command strip** (expand a row with its chevron) — *Create PR* (Claude
    drafts the description from the diff), *Merge PR* (creates the PR if
    needed, waits for checks, merges), *Hide…* (snooze the row), and *Tear

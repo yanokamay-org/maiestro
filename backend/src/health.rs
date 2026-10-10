@@ -801,6 +801,7 @@ async fn check_terminal_host(terminal_host: TerminalHost) -> HealthCheck {
         TerminalHost::Vscode => check_editor(),
         TerminalHost::TerminalApp => check_terminal_app().await,
         TerminalHost::Cmux => check_cmux().await,
+        TerminalHost::WindowsTerminal => check_windows_terminal(),
     }
 }
 
@@ -905,6 +906,33 @@ async fn check_cmux() -> HealthCheck {
         detail: cli.display().to_string(),
         sub,
         command: None,
+    }
+}
+
+/// Windows Terminal as the terminal host: `wt` resolves (its app execution
+/// alias, or the `tool_paths` pin). Never runs `wt.exe`: any `wt` call opens a
+/// window, and `wt -v` a dialog.
+fn check_windows_terminal() -> HealthCheck {
+    let id = "editor";
+    if !TerminalHost::WindowsTerminal.supported_here() {
+        return HealthCheck::new(
+            id,
+            TERMINAL_HOST_LABEL,
+            HealthStatus::Fail,
+            "Windows Terminal sessions are only available on Windows",
+        );
+    }
+    windows_terminal_check(crate::tools::find_tool("wt"), crate::tools::stale_override("wt"))
+}
+
+/// The Windows Terminal row from how `wt` resolved (`found`) and a pin that
+/// doesn't exist (`stale`). Pure so every branch is unit-tested.
+fn windows_terminal_check(found: Option<std::path::PathBuf>, stale: Option<String>) -> HealthCheck {
+    let (id, label) = ("editor", TERMINAL_HOST_LABEL);
+    match (found, stale) {
+        (Some(p), _) => HealthCheck::new(id, label, HealthStatus::Pass, p.display().to_string()),
+        (None, Some(pin)) => HealthCheck::new(id, label, HealthStatus::Fail, format!("Configured path not found: {pin}")),
+        (None, None) => HealthCheck::new(id, label, HealthStatus::Fail, crate::windows_terminal::NOT_FOUND),
     }
 }
 
@@ -1342,6 +1370,12 @@ const MIN_TOOL_VERSIONS: &[ToolMinimum] = &[
         min: "0.65.0",
         reason: "the version mAIestro Code's cmux sessions were verified on (`workspace create`, `--id-format uuids`, socket modes)",
     },
+    ToolMinimum {
+        tool: "wt",
+        label: "Windows Terminal",
+        min: "1.24.0",
+        reason: "the version mAIestro Code's Windows Terminal sessions were verified on (`-w` window names, `--suppressApplicationTitle`, tab UI Automation)",
+    },
 ];
 
 /// Extract the first run of `digits(.digits)*` from the first non-empty line of
@@ -1470,6 +1504,9 @@ async fn check_one_tool_version(repo: &str, min: &ToolMinimum) -> HealthCheck {
     let Some(path) = crate::tools::find_tool(min.tool) else {
         return tool_version_check(min, None, VersionOutcome::Error(String::new()));
     };
+    if min.tool == "wt" {
+        return wt_version_check(min, &path, crate::windows_terminal::installed_version(&path).await);
+    }
     log_command(repo, &format!("{} --version", path.display()));
     let mut cmd = crate::tools::tokio_command(min.tool);
     cmd.arg("--version");
@@ -1490,6 +1527,22 @@ async fn check_one_tool_version(repo: &str, min: &ToolMinimum) -> HealthCheck {
     tool_version_check(min, Some(path.as_path()), outcome)
 }
 
+/// Windows Terminal's version sub-check. `wt --version` can't be used — it
+/// opens a dialog — so the version comes from the package or the file
+/// (`windows_terminal::installed_version`); when neither tells, the row is
+/// `Info`, as for an unparsable version.
+fn wt_version_check(min: &ToolMinimum, path: &std::path::Path, version: Option<String>) -> HealthCheck {
+    match version {
+        Some(v) => tool_version_check(min, Some(path), VersionOutcome::Output(v)),
+        None => HealthCheck::new(
+            &format!("{}_version", min.tool),
+            &format!("{} ≥ {}", min.label, min.min),
+            HealthStatus::Info,
+            "Couldn't read Windows Terminal's version without starting it",
+        ),
+    }
+}
+
 /// Whether a [`MIN_TOOL_VERSIONS`] entry applies to a repo on `agent` opening
 /// sessions in `terminal_host`: `git` always does; `code` only when sessions open in VS
 /// Code; an agent CLI only when it is the repo's agent.
@@ -1498,6 +1551,7 @@ fn tool_applies(tool: &str, agent: Agent, terminal_host: TerminalHost) -> bool {
         "claude" | "codex" | "agy" | "copilot" => tool == agent.tool(),
         "code" => terminal_host == TerminalHost::Vscode,
         "cmux" => terminal_host == TerminalHost::Cmux,
+        "wt" => terminal_host == TerminalHost::WindowsTerminal,
         _ => true,
     }
 }
@@ -1798,6 +1852,33 @@ mod tests {
         assert_eq!(for_agent(Agent::Copilot), vec!["copilot", "git", "code"]);
         assert_eq!(applies(Agent::Claude, TerminalHost::TerminalApp), vec!["claude", "git"]);
         assert_eq!(applies(Agent::Claude, TerminalHost::Cmux), vec!["claude", "git", "cmux"]);
+        assert_eq!(applies(Agent::Codex, TerminalHost::WindowsTerminal), vec!["codex", "git", "wt"]);
+    }
+
+    /// The Windows Terminal row: a resolved `wt` passes, a broken pin fails
+    /// naming it, and a missing `wt` fails with the install hint.
+    #[test]
+    fn windows_terminal_row() {
+        let ok = windows_terminal_check(Some(std::path::PathBuf::from(r"C:\Users\u\AppData\Local\Microsoft\WindowsApps\wt.exe")), None);
+        assert_eq!(ok.status, HealthStatus::Pass);
+        assert!(ok.detail.ends_with("wt.exe"), "{}", ok.detail);
+        let stale = windows_terminal_check(None, Some(r"D:\portable\wt.exe".into()));
+        assert_eq!(stale.status, HealthStatus::Fail);
+        assert!(stale.detail.contains(r"D:\portable\wt.exe"), "{}", stale.detail);
+        let missing = windows_terminal_check(None, None);
+        assert_eq!(missing.status, HealthStatus::Fail);
+        assert!(missing.detail.contains("winget install Microsoft.WindowsTerminal"), "{}", missing.detail);
+    }
+
+    /// Windows Terminal's version comes from the package or the file, never a
+    /// `wt` run; an unknown version is `Info`.
+    #[test]
+    fn wt_version_sub_check() {
+        let min = MIN_TOOL_VERSIONS.iter().find(|m| m.tool == "wt").unwrap();
+        let p = std::path::Path::new("wt.exe");
+        assert_eq!(wt_version_check(min, p, Some("1.24.12741.0".into())).status, HealthStatus::Pass);
+        assert_eq!(wt_version_check(min, p, Some("1.22.11141.0".into())).status, HealthStatus::Warn);
+        assert_eq!(wt_version_check(min, p, None).status, HealthStatus::Info);
     }
 
     /// The cmux socket sub-check: both supported modes pass, full open access

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractAppFormDefaults } from "./AppSettingsForm";
+import { extractAppFormDefaults, layoutHostName, visibleToolFields } from "./AppSettingsForm";
 
 describe("extractAppFormDefaults", () => {
   it("reads the terminal font default from the schema", () => {
@@ -49,5 +49,40 @@ describe("extractAppFormDefaults", () => {
       "per-repo",
     );
     expect(extractAppFormDefaults({}).terminalLayoutDefault).toBe("per-repo");
+  });
+});
+
+describe("terminal layout", () => {
+  // The layout applies to the platform's grouping host.
+  it("names the platform's grouping terminal host", () => {
+    expect(layoutHostName("macos")).toBe("cmux");
+    expect(layoutHostName("windows")).toBe("Windows Terminal");
+    expect(layoutHostName("linux")).toBeNull();
+  });
+});
+
+describe("tool path rows", () => {
+  const fields = ["claude", "git", "code", "cmux", "wt"].map((key) => ({ key }));
+  const keys = (rows: { key: string }[]) => rows.map((r) => r.key);
+
+  // Rows follow what the backend reports for this OS: no cmux on Windows,
+  // no wt on macOS.
+  it("shows only the tools this OS resolves", () => {
+    const windows = ["claude", "git", "code", "wt"].map((tool) => ({ tool }));
+    expect(keys(visibleToolFields(fields, windows, {}))).toEqual(["claude", "git", "code", "wt"]);
+    const macos = ["claude", "git", "code", "cmux"].map((tool) => ({ tool }));
+    expect(keys(visibleToolFields(fields, macos, {}))).toEqual(["claude", "git", "code", "cmux"]);
+  });
+
+  it("keeps a row whose path the file sets", () => {
+    const windows = ["claude", "git", "code", "wt"].map((tool) => ({ tool }));
+    expect(keys(visibleToolFields(fields, windows, { cmux: "/opt/cmux", git: null }))).toEqual([
+      "claude",
+      "git",
+      "code",
+      "cmux",
+      "wt",
+    ]);
+    expect(keys(visibleToolFields(fields, windows, { cmux: "" }))).not.toContain("cmux");
   });
 });

@@ -10,6 +10,7 @@ import FolderIcon from "../icons/folder.svg?react";
 import VSCodeIcon from "../icons/vscode.svg?react";
 import TerminalIcon from "../icons/terminal.svg?react";
 import CmuxIcon from "../icons/cmux.svg?react";
+import WindowsTerminalIcon from "../icons/windows-terminal.svg?react";
 import ChevronRightIcon from "../icons/chevron-right.svg?react";
 
 // A pending Tear Down prompt: a warnings confirmation, or a "window still open"
@@ -25,6 +26,7 @@ export const TERMINAL_HOST_UI: Record<TerminalHost, { name: string; Icon: typeof
   vscode: { name: "VS Code", Icon: VSCodeIcon },
   terminal_app: { name: "Terminal", Icon: TerminalIcon },
   cmux: { name: "cmux", Icon: CmuxIcon },
+  windows_terminal: { name: "Windows Terminal", Icon: WindowsTerminalIcon },
 };
 
 /** The button that opens System Settings at a missing grant. */

@@ -160,14 +160,15 @@ describe("promptModelPlaceholder", () => {
 });
 
 describe("terminal host", () => {
-  it("offers Terminal.app and cmux only on macOS", () => {
+  it("offers Terminal.app and cmux on macOS, Windows Terminal on Windows", () => {
     expect(terminalHostOptions("macos", null)).toEqual(["vscode", "terminal_app", "cmux"]);
-    expect(terminalHostOptions("windows", null)).toEqual(["vscode"]);
+    expect(terminalHostOptions("windows", null)).toEqual(["vscode", "windows_terminal"]);
   });
 
   it("keeps a terminal host the file names even where it isn't available", () => {
-    expect(terminalHostOptions("windows", "terminal_app")).toEqual(["vscode", "terminal_app"]);
-    expect(terminalHostOptions("windows", "cmux")).toEqual(["vscode", "cmux"]);
+    expect(terminalHostOptions("windows", "terminal_app")).toEqual(["vscode", "windows_terminal", "terminal_app"]);
+    expect(terminalHostOptions("windows", "cmux")).toEqual(["vscode", "windows_terminal", "cmux"]);
+    expect(terminalHostOptions("macos", "windows_terminal")).toEqual(["vscode", "terminal_app", "cmux", "windows_terminal"]);
     expect(terminalHostOptions("macos", "terminal_app")).toEqual(["vscode", "terminal_app", "cmux"]);
   });
 });

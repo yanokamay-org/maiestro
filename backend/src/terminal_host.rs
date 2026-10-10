@@ -1,7 +1,8 @@
 //! Where a session runs: its **terminal host**, the user-facing app whose
-//! terminal the agent runs in — a VS Code window (`editor.rs`) or a Terminal.app
-//! window (`terminal_app.rs`) or a cmux workspace (`cmux.rs`). mAIestro Code launches the session into its
-//! terminal host and never hosts the conversation itself (see CLAUDE.md).
+//! terminal the agent runs in — a VS Code window (`editor.rs`), a Terminal.app
+//! window (`terminal_app.rs`), a cmux workspace (`cmux.rs`) or a Windows
+//! Terminal tab (`windows_terminal.rs`). mAIestro Code launches the session into
+//! its terminal host and never hosts the conversation itself (see CLAUDE.md).
 //!
 //! A repo chooses its terminal host (`terminal_host`); each session records the
 //! one it runs in. Switching the repo's terminal host moves every existing
@@ -12,8 +13,8 @@
 //! terminal-host-agnostic.
 //!
 //! The session command line itself ([`session_argv`]) lives here too: VS Code's
-//! folder-open task and Terminal.app run exactly the same resolved-agent
-//! command.
+//! folder-open task, Terminal.app and Windows Terminal run exactly the same
+//! resolved-agent command.
 
 use std::path::{Path, PathBuf};
 
@@ -35,6 +36,8 @@ pub enum TerminalHost {
     TerminalApp,
     /// A cmux workspace (macOS only).
     Cmux,
+    /// A Windows Terminal tab (Windows only).
+    WindowsTerminal,
 }
 
 impl TerminalHost {
@@ -43,6 +46,7 @@ impl TerminalHost {
         match self {
             TerminalHost::Vscode => true,
             TerminalHost::TerminalApp | TerminalHost::Cmux => cfg!(target_os = "macos"),
+            TerminalHost::WindowsTerminal => cfg!(target_os = "windows"),
         }
     }
 
@@ -52,6 +56,7 @@ impl TerminalHost {
             TerminalHost::Vscode => "Visual Studio Code",
             TerminalHost::TerminalApp => "Terminal",
             TerminalHost::Cmux => "cmux",
+            TerminalHost::WindowsTerminal => "Windows Terminal",
         }
     }
 
@@ -59,6 +64,7 @@ impl TerminalHost {
     pub fn window_noun(self) -> &'static str {
         match self {
             TerminalHost::Cmux => "workspace",
+            TerminalHost::WindowsTerminal => "tab",
             TerminalHost::Vscode | TerminalHost::TerminalApp => "window",
         }
     }
@@ -66,21 +72,26 @@ impl TerminalHost {
     /// The macOS grant mAIestro Code needs to see and close this terminal host's
     /// windows: Accessibility for VS Code (System Events), Automation for
     /// Terminal (its own Apple events). `None` for cmux, whose gate is its own
-    /// socket control mode rather than a macOS privacy grant.
+    /// socket control mode rather than a macOS privacy grant, and for Windows
+    /// Terminal, whose tabs UI Automation reaches with no grant at all.
     pub fn permission(self) -> Option<Permission> {
         match self {
             TerminalHost::Vscode => Some(Permission::Accessibility),
             TerminalHost::TerminalApp => Some(Permission::Automation),
-            TerminalHost::Cmux => None,
+            TerminalHost::Cmux | TerminalHost::WindowsTerminal => None,
         }
     }
 
     /// How to ask the user to let mAIestro Code close a window itself,
     /// completing "…, or <this> so it can close the window for you."
     fn grant_phrase(self) -> &'static str {
-        match self.permission() {
-            Some(p) => p.grant_phrase(),
-            None => "set cmux's Settings → Automation → Socket Control Mode to Automation or Password",
+        match self {
+            TerminalHost::Vscode => Permission::Accessibility.grant_phrase(),
+            TerminalHost::TerminalApp => Permission::Automation.grant_phrase(),
+            TerminalHost::Cmux => "set cmux's Settings → Automation → Socket Control Mode to Automation or Password",
+            // Not reached in practice: a tab UI Automation can't see is
+            // `StillOpen`, never `InUse`.
+            TerminalHost::WindowsTerminal => "try again once Windows Terminal responds",
         }
     }
 }
@@ -91,13 +102,14 @@ impl std::fmt::Display for TerminalHost {
             TerminalHost::Vscode => "vscode",
             TerminalHost::TerminalApp => "terminal_app",
             TerminalHost::Cmux => "cmux",
+            TerminalHost::WindowsTerminal => "windows_terminal",
         })
     }
 }
 
-/// How a terminal host that can group sessions (cmux) arranges them. Global
-/// (`app_settings::terminal_layout`), read at spawn; Terminal.app and VS Code
-/// ignore it.
+/// How a terminal host that can group sessions (cmux, Windows Terminal)
+/// arranges them. Global (`app_settings::terminal_layout`), read at spawn;
+/// Terminal.app and VS Code ignore it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TerminalLayout {
@@ -153,8 +165,8 @@ impl LaunchOptions {
 }
 
 /// The program and arguments that start a real, user-facing `agent` session:
-/// what VS Code's folder-open task runs in its integrated terminal, and what a
-/// Terminal.app types into its new window. Each argument carries whether the
+/// what VS Code's folder-open task runs in its integrated terminal, what a
+/// Terminal.app types into its new window, and what a Windows Terminal tab runs. Each argument carries whether the
 /// POSIX shell form ([`shell_command`], macOS) quotes it; VS Code on Windows
 /// runs the argv directly as a `process` task.
 ///
@@ -245,7 +257,8 @@ pub fn launch_options(repo: &str) -> LaunchOptions {
     }
 }
 
-/// The title Terminal.app gives the session's window: `<repo>: <session title>`.
+/// The title a terminal host gives the session's window or tab: `<repo>:
+/// <session title>`.
 fn terminal_title(session: &Session) -> String {
     let repo_name = session.repo.split('/').next_back().unwrap_or(&session.repo);
     format!("{repo_name}: {}", session.session_title)
@@ -303,6 +316,33 @@ pub async fn open(session: &Session) -> Result<(), String> {
             current.cmux_workspace = Some(handle);
             crate::sessions::save(&current).map_err(|e| format!("could not record the cmux workspace: {e}"))
         }
+        TerminalHost::WindowsTerminal => {
+            if !TerminalHost::WindowsTerminal.supported_here() {
+                return Err("Windows Terminal sessions are only available on Windows".into());
+            }
+            // The resolved agent path, run directly by the tab. The session
+            // title reaches `wt` both as the tab title and as `--name`, so it is
+            // made safe for `wt` once, before either is built.
+            let mut safe = session.clone();
+            safe.session_title = crate::windows_terminal::user_text(&session.session_title);
+            let (program, args) = session_argv(safe.agent, &safe.color, &safe.session_title, launch_options(&safe.repo));
+            let args: Vec<String> = args.into_iter().map(|(a, _)| a).collect();
+            let layout = crate::app_settings::terminal_layout();
+            let window = crate::windows_terminal::window_name(layout, &session.id, &session.repo);
+            let handle = crate::windows_terminal::launch(
+                &work_dir,
+                &program,
+                &args,
+                &terminal_title(&safe),
+                &session.color,
+                &window,
+            )
+            .await?;
+            tracing::info!(title = %handle.title, window = %window, layout = ?layout, "opened the session in Windows Terminal");
+            let mut current = crate::sessions::get(&session.id).unwrap_or_else(|| session.clone());
+            current.windows_terminal_tab = Some(handle);
+            crate::sessions::save(&current).map_err(|e| format!("could not record the Windows Terminal tab: {e}"))
+        }
     }
 }
 
@@ -343,7 +383,7 @@ fn note_cmux_window(session: &Session, current: &crate::cmux::CmuxWorkspace) {
 pub async fn reopen(session: &Session) -> Result<(), String> {
     match session.terminal_host {
         TerminalHost::Vscode => crate::editor::open_vscode(Path::new(&session.work_dir)),
-        TerminalHost::TerminalApp | TerminalHost::Cmux => focus_or_open(session).await,
+        TerminalHost::TerminalApp | TerminalHost::Cmux | TerminalHost::WindowsTerminal => focus_or_open(session).await,
     }
 }
 
@@ -368,6 +408,16 @@ pub async fn focus_or_open(session: &Session) -> Result<(), String> {
                 // "absent", which would start a second agent next to a live one.
                 if let Some(current) = crate::cmux::focus(handle).await.map_err(|e| e.message())? {
                     note_cmux_window(session, &current);
+                    return Ok(());
+                }
+            }
+            open(session).await
+        }
+        TerminalHost::WindowsTerminal => {
+            if let Some(handle) = &session.windows_terminal_tab {
+                // As for Terminal: a lookup we can't make is an error, never
+                // "absent", which would start a second agent next to a live one.
+                if crate::windows_terminal::focus(handle).await? {
                     return Ok(());
                 }
             }
@@ -403,6 +453,15 @@ pub async fn window_open(session: &Session) -> bool {
                 }
             },
         },
+        TerminalHost::WindowsTerminal => match &session.windows_terminal_tab {
+            None => false,
+            // A lookup that fails counts as open: `worktree_in_use` can't tell
+            // on Windows, and asking before a switch is the safe side.
+            Some(handle) => crate::windows_terminal::probe(handle).await.unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "could not look up the Windows Terminal tab");
+                true
+            }),
+        },
     }
 }
 
@@ -419,6 +478,10 @@ pub async fn close_and_wait(session: &Session) -> WindowClose {
         TerminalHost::Cmux => match &session.cmux_workspace {
             None => WindowClose::Closed,
             Some(handle) => crate::cmux::close_and_wait(handle, &work_dir).await,
+        },
+        TerminalHost::WindowsTerminal => match &session.windows_terminal_tab {
+            None => WindowClose::Closed,
+            Some(handle) => crate::windows_terminal::close_and_wait(handle).await,
         },
     }
 }
@@ -566,6 +629,7 @@ async fn move_session(mut session: Session, target: TerminalHost) {
     session.terminal_host = target;
     session.terminal_app_window = None;
     session.cmux_workspace = None;
+    session.windows_terminal_tab = None;
     // The window that was running the old agent is gone.
     session.editor_agent = None;
     if let Err(e) = crate::sessions::save(&session) {
@@ -622,9 +686,13 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str().map(str::to_string))
             .collect();
-        assert_eq!(values, ["vscode", "terminal_app", "cmux"]);
+        assert_eq!(values, ["vscode", "terminal_app", "cmux", "windows_terminal"]);
         assert_eq!(serde_json::to_value(TerminalHost::Cmux).unwrap(), "cmux");
         assert_eq!(TerminalHost::Cmux.to_string(), "cmux");
+        assert_eq!(serde_json::to_value(TerminalHost::WindowsTerminal).unwrap(), "windows_terminal");
+        assert_eq!(TerminalHost::WindowsTerminal.to_string(), "windows_terminal");
+        let global = crate::app_settings::schema_value()["properties"]["terminal_host"]["enum"].clone();
+        assert_eq!(global, serde_json::json!(["vscode", "terminal_app", "cmux", "windows_terminal", null]));
     }
 
     #[test]
@@ -739,5 +807,36 @@ mod tests {
         let (msg, perm) = blocked(TerminalHost::Cmux, WindowClose::InUse, "tear down").unwrap();
         assert!(msg.contains("cmux workspace") && msg.contains("Socket Control Mode"), "{msg}");
         assert_eq!(perm, None, "cmux's gate isn't a macOS privacy grant");
+        let (msg, perm) = blocked(TerminalHost::WindowsTerminal, WindowClose::StillOpen, "tear down").unwrap();
+        assert!(msg.contains("Windows Terminal tab is still open") && msg.contains("Close its tab"), "{msg}");
+        assert_eq!(perm, None);
+    }
+
+    #[test]
+    fn windows_terminal_is_windows_only_and_names_tabs() {
+        assert_eq!(TerminalHost::WindowsTerminal.supported_here(), cfg!(target_os = "windows"));
+        assert_eq!(TerminalHost::WindowsTerminal.window_noun(), "tab");
+        assert_eq!(TerminalHost::WindowsTerminal.permission(), None);
+    }
+
+    /// Moving a session off Windows Terminal forgets its tab.
+    #[tokio::test]
+    async fn moving_a_session_forgets_its_windows_terminal_tab() {
+        let _home = crate::testutil::TempHome::new();
+        let wt = tempfile::tempdir().unwrap();
+        let s: Session = serde_json::from_value(serde_json::json!({
+            "id": "242-x", "repo": "acme/widgets", "issue_number": 242, "issue_url": "u", "branch": "b",
+            "work_dir": wt.path().display().to_string(), "cloned_repo_dir": "/c", "session_title": "t",
+            "color": "#ca8a04", "emoji": "🍋", "terminal_host": "windows_terminal",
+            "windows_terminal_tab": { "title": "widgets: t" },
+        }))
+        .unwrap();
+        assert_eq!(s.windows_terminal_tab.as_ref().map(|t| t.title.as_str()), Some("widgets: t"));
+        crate::sessions::save(&s).unwrap();
+        move_session(s.clone(), TerminalHost::Vscode).await;
+        let moved = crate::sessions::get(&s.id).unwrap();
+        assert_eq!(moved.terminal_host, TerminalHost::Vscode);
+        assert_eq!(moved.windows_terminal_tab, None);
+        assert!(wt.path().join(".vscode/tasks.json").exists(), "in VS Code, the folder-open task is written");
     }
 }

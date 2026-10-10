@@ -70,7 +70,7 @@ export interface AppFormDefaults {
   terminalLayoutDefault: TerminalLayout;
 }
 
-const TERMINAL_HOSTS: TerminalHost[] = ["vscode", "terminal_app", "cmux"];
+const TERMINAL_HOSTS: TerminalHost[] = ["vscode", "terminal_app", "cmux", "windows_terminal"];
 const TERMINAL_LAYOUTS: TerminalLayout[] = ["windows", "per-repo", "tabs"];
 
 export function extractAppFormDefaults(
@@ -208,9 +208,10 @@ export const terminalHostTester = rankWith(20, scopeEndsWith("terminal_host"));
 export const TerminalHostRenderer = withJsonFormsControlProps(TerminalHostControl);
 
 // ── Terminal layout ─────────────────────────────────────────────────────────
-// How cmux arranges new sessions; null shows as the schema default. Applies
-// to new sessions only, so it goes through the autosave like any field. Only
-// cmux groups sessions, so the field is macOS-only (unless the file sets it).
+// How cmux (macOS) or Windows Terminal (Windows) arranges new sessions; null
+// shows as the schema default. Applies to new sessions only, so it goes through
+// the autosave like any field. Hidden where no terminal host groups sessions
+// (unless the file sets it).
 
 const LAYOUT_LABELS: Record<TerminalLayout, string> = {
   windows: "A window per session",
@@ -218,10 +219,17 @@ const LAYOUT_LABELS: Record<TerminalLayout, string> = {
   tabs: "One window, every session as a tab",
 };
 
+/** The terminal host on `platform` that groups sessions, which the layout
+ *  applies to: cmux on macOS, Windows Terminal on Windows, none elsewhere. */
+export function layoutHostName(platform: Platform): string | null {
+  return platform === "macos" ? "cmux" : platform === "windows" ? "Windows Terminal" : null;
+}
+
 function TerminalLayoutControl(props: ControlProps) {
   const { data, handleChange, path, label, description, config } = props;
   const platform: Platform = config?.platform ?? "macos";
-  if (platform !== "macos" && !data) return null;
+  const host = layoutHostName(platform);
+  if (!host && !data) return null;
   const value: TerminalLayout = TERMINAL_LAYOUTS.find((l) => l === data) ?? config?.terminalLayoutDefault ?? "per-repo";
   return (
     <div className="control jsf-control">
@@ -240,7 +248,7 @@ function TerminalLayoutControl(props: ControlProps) {
         ))}
       </select>
       <p className="session-hint" style={{ paddingTop: 2 }}>
-        Applies to cmux sessions, from the next one you start.
+        Applies to {host ?? "cmux and Windows Terminal"} sessions, from the next one you start.
       </p>
     </div>
   );
@@ -331,6 +339,17 @@ function toolFields(schema: ControlProps["schema"]): { key: string; help?: strin
   return Object.entries(props).map(([key, sub]) => ({ key, help: sub?.description }));
 }
 
+/** The tool rows to show: those `tools_resolved` reports on this OS (so no
+ *  cmux row on Windows and no wt row on macOS), plus any whose path the file
+ *  sets, so a hand-edited pin is never hidden. */
+export function visibleToolFields<F extends { key: string }>(
+  fields: F[],
+  resolved: { tool: string }[],
+  paths: Record<string, string | null | undefined>,
+): F[] {
+  return fields.filter((f) => resolved.some((t) => t.tool === f.key) || (paths[f.key] ?? "") !== "");
+}
+
 function ToolPathsControl(props: ControlProps) {
   const { data, handleChange, path, label, description, config, schema } = props;
   const paths = (data ?? {}) as Record<string, string | null | undefined>;
@@ -345,7 +364,7 @@ function ToolPathsControl(props: ControlProps) {
     <div className="control jsf-control">
       <label className="jsf-label">{label}</label>
       {description && <div className="jsf-help">{description}</div>}
-      {toolFields(schema).map((field) => (
+      {visibleToolFields(toolFields(schema), resolved, paths).map((field) => (
         <ToolPathRow
           key={field.key}
           field={field}

@@ -42,6 +42,22 @@ jsonschema = { version = "0.46", default-features = false }
 # window enumeration/close/focus calls teardown uses on VS Code (`editor.rs`),
 # and the tray-icon overflow read for onboarding (`tray_visibility.rs`).
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+# Windows Terminal sessions (`windows_terminal.rs`): UI Automation (COM) to
+# find, select and close a session's tab, and the installed package's version
+# (or a portable `wt.exe`'s file version) for Check Health, read without ever
+# starting Windows Terminal.
+windows = { version = "0.61", features = [
+  "ApplicationModel",
+  "Foundation_Collections",
+  "Management_Deployment",
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }
