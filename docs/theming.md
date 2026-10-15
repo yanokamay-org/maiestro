@@ -59,6 +59,8 @@ The folder-open task only runs when VS Code opens the folder fresh (and a Termin
 
 ## Terminal.app sessions
 
+A repo picks its terminal host with `terminal_host`, else the global default, which first-run onboarding asks for (VS Code preselected) and the General panel changes later (`docs/settings.md`).
+
 A repo whose `terminal_host` is `terminal_app` (macOS; `docs/settings.md`) opens each session in **its own Terminal.app window** instead of VS Code. `terminal_host.rs` dispatches every open, focus, probe and close on the session record's `terminal_host`; `terminal_app.rs` drives Terminal. There is no tab or per-repo grouping: Terminal's AppleScript can open windows but not tabs (tabs would need System Events keystrokes and the Accessibility grant), so every session gets a window.
 
 **Launch.** `terminal_app::launch` runs `osascript` with an **argument list**: the AppleScript is a constant that reads every value from `argv`, so the command line and title are never spliced into script source. It runs `do script` with `cd <worktree> && printf <OSC 0 title> && <session command>`, where the session command is exactly what VS Code's folder-open task runs (`terminal_host::session_argv` + `shell_command`, so the same resolved agent path, flags and `/color` prompt), every value single-quoted by `tools::shell_quote`. `do script` types that line into a new login shell, so the session gets the user's full ambient environment. When Terminal wasn't running, the session takes over the window Terminal opens at launch rather than leaving an empty one beside it. The script returns the new window's `id` and its tab's `tty`, stored on the session as `terminal_app_window`.

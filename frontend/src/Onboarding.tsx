@@ -1,7 +1,8 @@
 // One-time onboarding window (issue #98) — a single wizard (issues #148, #189).
 // On Windows it opens with "Find the brain icon" (#198), shown only while the
 // icon is hidden in the taskbar's `^` overflow. Then it connects a GitHub
-// identity, and finally chooses the default agent and launch at login together. A branded webview dialog — rather than a native
+// identity, picks the default terminal host, and finally chooses the default
+// agent and launch at login together. A branded webview dialog — rather than a native
 // alert, which can only show the generic OS icon — so it shows the mAIestro
 // Code logo and name. The backend opens this window only on the very first run;
 // pressing "Get started" (or closing the window, which accepts the defaults)
@@ -16,18 +17,24 @@
 // below — there's no generic step framework.
 
 import { useEffect, useState } from "react";
-import { Agent, Platform, ResolvedTool, api } from "./api";
+import { Agent, InstalledTerminalHost, Platform, ResolvedTool, TerminalHost, api } from "./api";
 import { GITHUB_PAT_SETUP_URL } from "./components/CredRows";
+import { TERMINAL_HOST_PRODUCTS, terminalHostOptions } from "./components/TerminalHostSwitch";
 import { TrayDragDemo } from "./components/TrayDragDemo";
 import { Wordmark } from "./components/Wordmark";
 import { AGENTS, AGENT_MARKS, AGENT_PRODUCTS, AGENT_TOOLS, asAgent } from "./lib/agents";
 import LogoIcon from "./icons/logo.svg?react";
+import VSCodeIcon from "./icons/vscode.svg?react";
+import TerminalIcon from "./icons/terminal.svg?react";
+import CmuxIcon from "./icons/cmux.svg?react";
+import WindowsTerminalIcon from "./icons/windows-terminal.svg?react";
 
-type Step = "tray" | "github" | "defaults";
+type Step = "tray" | "github" | "terminal" | "defaults";
 
 const STEPS: { id: Step; label: string }[] = [
   { id: "tray", label: "Find the brain icon" },
   { id: "github", label: "Connect GitHub" },
+  { id: "terminal", label: "Choose a terminal host" },
   { id: "defaults", label: "Choose defaults" },
 ];
 
@@ -43,9 +50,36 @@ export function initialAgent(
   return AGENTS.find(installed) ?? schemaDefault;
 }
 
+const TERMINAL_HOST_MARKS: Record<TerminalHost, typeof VSCodeIcon> = {
+  vscode: VSCodeIcon,
+  terminal_app: TerminalIcon,
+  cmux: CmuxIcon,
+  windows_terminal: WindowsTerminalIcon,
+};
+
+/** What a terminal host needs before its first session, if anything. */
+const TERMINAL_HOST_NOTES: Partial<Record<TerminalHost, string>> = {
+  terminal_app: "The first session asks you to let mAIestro Code control Terminal. Allow it.",
+  cmux: "Set cmux's Socket Control Mode to Automation or Password (cmux Settings → Automation).",
+};
+
+/** Which terminal host to preselect: the saved setting when this OS has it
+ *  (a file synced from another OS may name one it doesn't), else the schema
+ *  default when this OS has it, else VS Code. */
+export function initialTerminalHost(
+  saved: TerminalHost | null | undefined,
+  schemaDefault: unknown,
+  options: TerminalHost[],
+): TerminalHost {
+  if (saved && options.includes(saved)) return saved;
+  const fallback = options.find((h) => h === schemaDefault);
+  return fallback ?? "vscode";
+}
+
 export function Onboarding() {
   // Whether the GitHub step is skipped — an install that already has an
-  // identity (an existing user upgrading in) goes straight to defaults, never
+  // identity (an existing user upgrading in) goes straight to the terminal
+  // host step, never
   // re-prompted. `null` while the checks are in flight, so no step renders and
   // the rail can't visibly change mid-flash.
   const [hasIdentities, setHasIdentities] = useState<boolean | null>(null);
@@ -58,6 +92,8 @@ export function Onboarding() {
 
   const [agent, setAgent] = useState<Agent>("claude");
   const [tools, setTools] = useState<ResolvedTool[] | null>(null);
+  const [terminalHost, setTerminalHost] = useState<TerminalHost>("vscode");
+  const [hosts, setHosts] = useState<InstalledTerminalHost[] | null>(null);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   // The tray lives in the macOS menu bar but the Windows taskbar (#198).
   const [platform, setPlatform] = useState<Platform>("macos");
@@ -76,7 +112,8 @@ export function Onboarding() {
       api.appSettingsSchema().catch(() => null),
       api.platform().catch(() => null),
       api.trayIconPromoted().catch(() => null),
-    ]).then(([ids, resolved, settings, schema, os, promoted]) => {
+      api.terminalHostsInstalled().catch(() => null),
+    ]).then(([ids, resolved, settings, schema, os, promoted, installedHosts]) => {
       if (os) setPlatform(os);
       const tray = os === "windows" && promoted !== true;
       setShowTray(tray);
@@ -85,10 +122,14 @@ export function Onboarding() {
       const isInstalled = (a: Agent) =>
         !!resolved?.find((t) => t.tool === AGENT_TOOLS[a])?.exists;
       setTools(resolved);
+      setHosts(installedHosts);
       setAgent(initialAgent(settings?.agent, asAgent(props.agent?.default, "claude"), isInstalled));
+      setTerminalHost(
+        initialTerminalHost(settings?.terminal_host, props.terminal_host?.default, terminalHostOptions(os ?? "macos", null)),
+      );
       const has = ids.length > 0;
       setHasIdentities(has);
-      setStep(tray ? "tray" : has ? "defaults" : "github");
+      setStep(tray ? "tray" : has ? "terminal" : "github");
     });
   }, []);
 
@@ -118,13 +159,13 @@ export function Onboarding() {
       }
       setIdentityBusy(false);
     }
-    setStep("defaults");
+    setStep("terminal");
   }
 
   const finish = () => {
     setBusy(true);
     // The command destroys this window; no need to handle the resolved promise.
-    api.completeOnboarding(launchAtLogin, agent).catch(() => setBusy(false));
+    api.completeOnboarding(launchAtLogin, agent, terminalHost).catch(() => setBusy(false));
   };
 
   const steps = STEPS.filter(
@@ -133,6 +174,9 @@ export function Onboarding() {
   const stepIndex = steps.findIndex((s) => s.id === step);
   const toolFor = (a: Agent) => tools?.find((t) => t.tool === AGENT_TOOLS[a]);
   const chosenMissing = tools !== null && !toolFor(agent)?.exists;
+  const hostFor = (h: TerminalHost) => hosts?.find((x) => x.terminal_host === h);
+  const hostMissing = hosts !== null && !hostFor(terminalHost)?.installed;
+  const terminalNote = TERMINAL_HOST_NOTES[terminalHost];
 
   return (
     <main className="onboarding">
@@ -231,6 +275,49 @@ export function Onboarding() {
                 {identityError && <p className="cred-error">{identityError}</p>}
               </div>
             </>
+          ) : step === "terminal" ? (
+            <>
+              <h2 className="onboarding-heading">Choose a terminal host</h2>
+              <p className="onboarding-lead">
+                Each new session opens its agent here. A repo can pick its own in its settings.
+              </p>
+
+              <div className="onboarding-agents" role="radiogroup" aria-label="Default terminal host">
+                {terminalHostOptions(platform, null).map((h) => {
+                  const Mark = TERMINAL_HOST_MARKS[h];
+                  const found = hostFor(h);
+                  return (
+                    <label key={h} className={`onboarding-agent${h === terminalHost ? " selected" : ""}`}>
+                      <input
+                        type="radio"
+                        name="terminal-host"
+                        value={h}
+                        checked={h === terminalHost}
+                        onChange={() => setTerminalHost(h)}
+                      />
+                      <Mark className="onboarding-agent-mark" aria-hidden />
+                      <span className="onboarding-agent-name">{TERMINAL_HOST_PRODUCTS[h]}</span>
+                      {hosts !== null && (
+                        <span
+                          className={`onboarding-agent-status${found?.installed ? " found" : ""}`}
+                          title={found?.path ?? undefined}
+                        >
+                          {found?.installed ? "Installed" : "Not installed"}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              {hostMissing ? (
+                <p className="onboarding-agent-note">
+                  Install {TERMINAL_HOST_PRODUCTS[terminalHost]} before you start a session. mAIestro
+                  Code finds it in its usual install location, or you can set its path in Settings.
+                </p>
+              ) : (
+                terminalNote && <p className="onboarding-agent-note">{terminalNote}</p>
+              )}
+            </>
           ) : (
             <>
               <h2 className="onboarding-heading">Choose defaults</h2>
@@ -314,6 +401,10 @@ export function Onboarding() {
             {step === "tray" ? (
               <button className="onboarding-btn" onClick={() => setStep(steps[stepIndex + 1].id)}>
                 {trayPromoted === false ? "Skip for now" : "Continue"}
+              </button>
+            ) : step === "terminal" ? (
+              <button className="onboarding-btn" onClick={() => setStep("defaults")}>
+                Continue
               </button>
             ) : step === "github" ? (
               <button className="onboarding-btn" disabled={identityBusy} onClick={handleContinue}>

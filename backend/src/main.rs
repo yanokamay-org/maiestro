@@ -517,6 +517,7 @@ fn main() {
             terminal_host::repo_set_terminal_host,
             terminal_host::app_set_terminal_host,
             terminal_host::terminal_host_default,
+            terminal_host::terminal_hosts_installed,
             pr::session_pr,
             pr::session_create_pr,
             pr::session_pr_checks,
