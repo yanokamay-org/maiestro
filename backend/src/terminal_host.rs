@@ -25,6 +25,12 @@ use crate::editor::WindowClose;
 use crate::sessions::Session;
 use crate::tools::shell_quote;
 
+/// Where macOS keeps Terminal.app.
+pub const TERMINAL_APP: &str = "/System/Applications/Utilities/Terminal.app";
+
+/// Where VS Code's app bundle lives on macOS, for when its `code` CLI isn't found.
+pub const VSCODE_APP: &str = "/Applications/Visual Studio Code.app";
+
 /// The app a repo opens its sessions in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,6 +53,26 @@ impl TerminalHost {
             TerminalHost::Vscode => true,
             TerminalHost::TerminalApp | TerminalHost::Cmux => cfg!(target_os = "macos"),
             TerminalHost::WindowsTerminal => cfg!(target_os = "windows"),
+        }
+    }
+
+    /// Where this terminal host is installed on this computer, or `None` when it
+    /// isn't, or doesn't exist on this OS. VS Code counts with only its app
+    /// bundle (macOS then launches it with `open -a`) unless a `code` pin is set
+    /// and missing, as Check Health judges it. Only looks: never runs anything.
+    pub fn installed_at(self) -> Option<PathBuf> {
+        if !self.supported_here() {
+            return None;
+        }
+        match self {
+            TerminalHost::Vscode => crate::tools::find_tool("code").or_else(|| {
+                let app = Path::new(VSCODE_APP);
+                (cfg!(target_os = "macos") && crate::tools::stale_override("code").is_none() && app.is_dir())
+                    .then(|| app.to_path_buf())
+            }),
+            TerminalHost::TerminalApp => Some(PathBuf::from(TERMINAL_APP)).filter(|p| p.is_dir()),
+            TerminalHost::Cmux => crate::tools::find_tool("cmux"),
+            TerminalHost::WindowsTerminal => crate::tools::find_tool("wt"),
         }
     }
 
@@ -561,6 +587,16 @@ pub async fn app_set_terminal_host(
     confirmed: bool,
 ) -> Result<SetTerminalHostOutcome, String> {
     crate::log_invoke!("app_set_terminal_host", terminal_host = ?terminal_host, confirmed);
+    set_default_terminal_host(terminal_host, confirmed).await
+}
+
+/// The body of [`app_set_terminal_host`], shared with onboarding's choice of
+/// the default (`app_settings::onboarding_complete`), so the global setting has
+/// one write path.
+pub async fn set_default_terminal_host(
+    terminal_host: Option<TerminalHost>,
+    confirmed: bool,
+) -> Result<SetTerminalHostOutcome, String> {
     let target = terminal_host.unwrap_or_else(crate::app_settings::terminal_host_schema_default);
     // A repo whose settings can't be read is left alone rather than guessed at.
     let follows_default = |repo: &str| {
@@ -653,6 +689,30 @@ async fn move_session(mut session: Session, target: TerminalHost) {
 pub fn terminal_host_default() -> TerminalHost {
     crate::log_invoke_debug!("terminal_host_default");
     crate::repo_settings::resolve_terminal_host(None)
+}
+
+/// One terminal host this OS offers, and whether it's installed: onboarding's
+/// terminal host step shows it like the agents' "Installed" status.
+#[derive(Debug, Serialize)]
+pub struct InstalledTerminalHost {
+    pub terminal_host: TerminalHost,
+    pub installed: bool,
+    /// Where it was found; `None` when it wasn't.
+    pub path: Option<String>,
+}
+
+/// The terminal hosts this OS offers, each with whether it's installed.
+#[tauri::command]
+pub fn terminal_hosts_installed() -> Vec<InstalledTerminalHost> {
+    crate::log_invoke_debug!("terminal_hosts_installed");
+    [TerminalHost::Vscode, TerminalHost::TerminalApp, TerminalHost::Cmux, TerminalHost::WindowsTerminal]
+        .into_iter()
+        .filter(|h| h.supported_here())
+        .map(|terminal_host| {
+            let path = terminal_host.installed_at().map(|p| p.display().to_string());
+            InstalledTerminalHost { terminal_host, installed: path.is_some(), path }
+        })
+        .collect()
 }
 
 /// Open System Settings → Privacy & Security → Automation, where the user lets
@@ -817,6 +877,26 @@ mod tests {
         assert_eq!(TerminalHost::WindowsTerminal.supported_here(), cfg!(target_os = "windows"));
         assert_eq!(TerminalHost::WindowsTerminal.window_noun(), "tab");
         assert_eq!(TerminalHost::WindowsTerminal.permission(), None);
+    }
+
+    /// Onboarding lists only this OS's terminal hosts, and a host from another
+    /// OS never reads as installed.
+    #[test]
+    fn installed_terminal_hosts_are_this_os_only() {
+        let listed: Vec<TerminalHost> = terminal_hosts_installed().into_iter().map(|h| h.terminal_host).collect();
+        let expected = if cfg!(target_os = "macos") {
+            vec![TerminalHost::Vscode, TerminalHost::TerminalApp, TerminalHost::Cmux]
+        } else if cfg!(target_os = "windows") {
+            vec![TerminalHost::Vscode, TerminalHost::WindowsTerminal]
+        } else {
+            vec![TerminalHost::Vscode]
+        };
+        assert_eq!(listed, expected);
+        let elsewhere = if cfg!(target_os = "windows") { TerminalHost::Cmux } else { TerminalHost::WindowsTerminal };
+        assert_eq!(elsewhere.installed_at(), None);
+        if cfg!(target_os = "macos") {
+            assert!(TerminalHost::TerminalApp.installed_at().is_some(), "Terminal.app ships with macOS");
+        }
     }
 
     /// Moving a session off Windows Terminal forgets its tab.

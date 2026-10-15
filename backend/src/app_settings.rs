@@ -123,7 +123,8 @@ pub struct AppSettings {
     /// The default terminal host for repos that don't pick their own. `None`
     /// (absent) means the schema `default`. See [`terminal_host`]. Not owned by
     /// the Settings form's autosave: it changes only through
-    /// `terminal_host::app_set_terminal_host`, which moves the affected sessions.
+    /// `terminal_host::set_default_terminal_host` (the General panel's control
+    /// and onboarding), which moves the affected sessions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_host: Option<crate::terminal_host::TerminalHost>,
     /// How a terminal host that groups sessions (cmux, Windows Terminal) arranges them. `None`
@@ -534,17 +535,25 @@ pub fn complete_onboarding(
 /// window. `destroy()` (not `close()`) so it bypasses the CloseRequested handler —
 /// onboarding is already recorded, so the "closed = defaults" path must not also
 /// fire. Marks onboarding complete either way.
+///
+/// The terminal host goes through the same path as the General panel's control
+/// (`terminal_host::set_default_terminal_host`), unconfirmed: onboarding never
+/// closes a session's window, so if any session following the default has one
+/// open (or can't be moved), the setting is left as it was and a warning logged.
 #[tauri::command]
-pub fn onboarding_complete(
+pub async fn onboarding_complete(
     app: tauri::AppHandle,
     launch_at_login: bool,
     agent: crate::agent::Agent,
+    terminal_host: crate::terminal_host::TerminalHost,
 ) {
     crate::log_invoke!(
         "onboarding_complete",
         launch_at_login = launch_at_login,
-        agent = agent.as_str()
+        agent = agent.as_str(),
+        terminal_host = %terminal_host
     );
+    apply_onboarding_terminal_host(terminal_host).await;
     complete_onboarding(&app, launch_at_login, Some(agent));
     use tauri::Manager;
     if let Some(window) = app.get_webview_window("onboarding") {
@@ -552,9 +561,27 @@ pub fn onboarding_complete(
     }
 }
 
+/// Save onboarding's terminal host choice as the global default, unless doing
+/// so would close a window or fails; then it's logged and left unchanged.
+async fn apply_onboarding_terminal_host(terminal_host: crate::terminal_host::TerminalHost) {
+    use crate::terminal_host::SetTerminalHostOutcome;
+    match crate::terminal_host::set_default_terminal_host(Some(terminal_host), false).await {
+        Ok(SetTerminalHostOutcome::Done { .. }) => {}
+        Ok(SetTerminalHostOutcome::NeedsConfirmation { open }) => tracing::warn!(
+            %terminal_host,
+            open = open.len(),
+            "onboarding left the terminal host unchanged: sessions have windows open"
+        ),
+        Ok(SetTerminalHostOutcome::BlockedByEditor { message, .. }) => {
+            tracing::warn!(%terminal_host, %message, "onboarding left the terminal host unchanged")
+        }
+        Err(e) => tracing::warn!(%terminal_host, error = %e, "onboarding left the terminal host unchanged"),
+    }
+}
+
 /// Handle the user closing the onboarding window (the title-bar close button)
 /// without pressing "Get started": accept the defaults (launch-at-login off, the
-/// agent left at its schema default) and mark onboarding complete so it doesn't
+/// agent and terminal host left at their schema defaults) and mark onboarding complete so it doesn't
 /// reappear. Guarded on the flag so it's a no-op when the button already recorded the choices (that path uses `destroy()`,
 /// which skips this, but the guard is belt-and-suspenders). Called from
 /// `main.rs`'s window-event handler.
@@ -695,6 +722,27 @@ mod tests {
         assert_eq!(schema_default("/properties/agent/default"), "claude");
         update(|s| s.agent = Some(crate::agent::Agent::Codex)).unwrap();
         assert_eq!(agent(), crate::agent::Agent::Codex);
+    }
+
+    /// Onboarding's terminal host choice lands in the global setting on a fresh
+    /// install (VS Code written explicitly), and a host this OS lacks leaves
+    /// the setting as it was.
+    #[tokio::test]
+    async fn onboarding_terminal_host_writes_the_global_default() {
+        use crate::terminal_host::TerminalHost;
+        let _home = crate::testutil::TempHome::new();
+        apply_onboarding_terminal_host(TerminalHost::Vscode).await;
+        assert_eq!(load().terminal_host, Some(TerminalHost::Vscode));
+
+        let (here, elsewhere) = if cfg!(target_os = "windows") {
+            (TerminalHost::WindowsTerminal, TerminalHost::Cmux)
+        } else {
+            (TerminalHost::Cmux, TerminalHost::WindowsTerminal)
+        };
+        apply_onboarding_terminal_host(here).await;
+        assert_eq!(load().terminal_host, Some(here));
+        apply_onboarding_terminal_host(elsewhere).await;
+        assert_eq!(load().terminal_host, Some(here), "an unsupported host is not written");
     }
 
     /// The global terminal host defaults to VS Code, and a repo with no

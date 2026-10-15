@@ -394,6 +394,15 @@ export interface ResolvedTool {
   exists: boolean;
 }
 
+/** One terminal host this OS offers, and whether it's installed
+ *  (`terminal_hosts_installed`). */
+export interface InstalledTerminalHost {
+  terminal_host: TerminalHost;
+  installed: boolean;
+  /** Where it was found; null when it wasn't. */
+  path: string | null;
+}
+
 /** `info` reports no problem — something worth knowing that needs no action
  *  (e.g. the preferred terminal font isn't installed, so a stock one is used). */
 export type HealthStatus = "pass" | "fail" | "warn" | "info" | "skipped";
@@ -475,6 +484,10 @@ export const api = {
   /** The terminal host for repos whose own `terminal_host` is `null`. */
   terminalHostDefault: () =>
     invoke<TerminalHost>("terminal_host_default"),
+
+  /** This OS's terminal hosts, each with whether it's installed. */
+  terminalHostsInstalled: () =>
+    invoke<InstalledTerminalHost[]>("terminal_hosts_installed"),
 
   /** Untrack a repo (delete its settings file). Worktrees and sessions are kept. */
   removeRepo: (repo: string) =>
@@ -636,8 +649,8 @@ export const api = {
     invoke<void>("app_settings_set", { settings }),
 
   /** Finish onboarding with the chosen options and dismiss the onboarding window. */
-  completeOnboarding: (launchAtLogin: boolean, agent: Agent) =>
-    invoke<void>("onboarding_complete", { launchAtLogin, agent }),
+  completeOnboarding: (launchAtLogin: boolean, agent: Agent, terminalHost: TerminalHost) =>
+    invoke<void>("onboarding_complete", { launchAtLogin, agent, terminalHost }),
 
   /** The model ids `agent`'s CLI reports (`codex debug models`, `agy models`),
    *  for the drafting-model suggestions. `null` when the CLI can't list them

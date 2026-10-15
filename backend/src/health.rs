@@ -16,7 +16,7 @@
 //! object (fine-grained tokens) — see the module's `github` sub-check.
 
 use crate::agent::Agent;
-use crate::terminal_host::TerminalHost;
+use crate::terminal_host::{TerminalHost, TERMINAL_APP};
 use crate::paths::expand_tilde;
 use crate::plugins::GitHub;
 use crate::repo_settings;
@@ -820,7 +820,7 @@ fn check_editor() -> HealthCheck {
             HealthCheck::new(id, label, HealthStatus::Fail, tool_not_found_detail("code"))
         }
         None if !cfg!(target_os = "windows")
-            && std::path::Path::new("/Applications/Visual Studio Code.app").is_dir() =>
+            && std::path::Path::new(crate::terminal_host::VSCODE_APP).is_dir() =>
         {
             HealthCheck::new(
             id,
@@ -860,8 +860,6 @@ async fn check_terminal_app() -> HealthCheck {
         command: None,
     }
 }
-
-const TERMINAL_APP: &str = "/System/Applications/Utilities/Terminal.app";
 
 /// The Automation sub-check from [`crate::terminal_app::automation_allowed`]'s
 /// answer: `None` = Terminal isn't running, so nothing was asked yet.

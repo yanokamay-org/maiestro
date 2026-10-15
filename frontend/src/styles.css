@@ -2064,8 +2064,8 @@ body {
   color: var(--muted);
 }
 
-/* Default-agent picker: a radio group of rows, mark + name left, whether the
-   agent's CLI is installed on the right. */
+/* Onboarding's pickers (default terminal host, default agent): a radio group
+   of rows, mark + name left, whether it's installed on the right. */
 .onboarding-agents {
   display: flex;
   flex-direction: column;
