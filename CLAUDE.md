@@ -34,7 +34,7 @@ The detailed how-it-works for each subsystem lives in `docs/`. **Read the releva
 | The background update check and the popover's update banner (`update_check.rs`) | `docs/update-check.md` |
 | The popover's quota strip, the `statusline` helper, Codex/Copilot quota reads (`quota.rs`) | `docs/provider-quotas.md` |
 
-Adding, removing or changing an agent, an OS or a terminal host also means updating the README's "What's supported" tables.
+Adding, removing or changing an agent, an OS or a terminal host also means updating the README's "What's supported" table.
 
 **Don't cite issue numbers in docs or code comments.** Docs and comments describe how things work now, not the history of how they got there — write "Codex sessions get no session color", not "Codex sessions (issue #162) get no session color", and never "see #126" or "(#175)". The one exception is a pointer to work that is still **open** (e.g. "unsigned until #224 adds signing"); check with `gh issue view <N> --json state` before citing one, and remove the reference when that issue closes. Issue numbers belong in branch names, commit messages and PR descriptions, which already record the history.
 

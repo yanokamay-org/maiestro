@@ -48,28 +48,30 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 
 ## What's supported
 
-<!-- Keep these tables in sync with the code: update them when an agent (agent.rs),
+<!-- Keep this table in sync with the code: update it when an agent (agent.rs),
      an OS, or a terminal host (terminal_host.rs) is added or changes. -->
 
-| Agentic coding CLI | macOS | Windows |
-| --- | :---: | :---: |
-| Claude Code (`claude`) | ✅ | ✅ |
-| Codex CLI (`codex`) | ✅ | ✅ |
-| Antigravity CLI (`agy`) | ✅ | ✅ |
-| GitHub Copilot CLI (`copilot`) | ✅ | ✅ |
-
-| Operating system | Supported |
-| --- | :---: |
-| macOS | ✅ |
-| Windows 10 / 11 (x64) | ✅ |
-| Linux and others | — |
-
-| Terminal host | macOS | Windows |
-| --- | :---: | :---: |
-| VS Code | ✅ | ✅ |
-| Terminal.app | ✅ | — |
-| cmux | ✅ | — |
-| Windows Terminal | — | ✅ |
+<table>
+  <thead>
+    <tr><th></th><th>macOS</th><th>Windows</th></tr>
+  </thead>
+  <tbody>
+    <tr><th colspan="3" align="left">Agentic coding CLIs</th></tr>
+    <tr><td>Claude Code (<code>claude</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
+    <tr><td>Codex CLI (<code>codex</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
+    <tr><td>Antigravity CLI (<code>agy</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
+    <tr><td>GitHub Copilot CLI (<code>copilot</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
+    <tr><th colspan="3" align="left">Operating systems</th></tr>
+    <tr><td>macOS</td><td align="center">✅</td><td align="center">—</td></tr>
+    <tr><td>Windows 10 / 11 (x64)</td><td align="center">—</td><td align="center">✅</td></tr>
+    <tr><td>Linux and others</td><td align="center">—</td><td align="center">—</td></tr>
+    <tr><th colspan="3" align="left">Terminal hosts</th></tr>
+    <tr><td>VS Code</td><td align="center">✅</td><td align="center">✅</td></tr>
+    <tr><td>Terminal.app</td><td align="center">✅</td><td align="center">—</td></tr>
+    <tr><td>cmux</td><td align="center">✅</td><td align="center">—</td></tr>
+    <tr><td>Windows Terminal</td><td align="center">—</td><td align="center">✅</td></tr>
+  </tbody>
+</table>
 
 Each repo picks its agentic coding CLI and terminal host in Settings, or
 follows the global defaults.
