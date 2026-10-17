@@ -55,7 +55,12 @@ Claude Code (the default), Codex CLI, Antigravity CLI, or GitHub Copilot CLI —
 logged in.
 
 #### 1. Install mAIestro Code
-Download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications.
+
+```bash
+brew install --cask yanokamay-org/tap/maiestro-code
+```
+
+Or download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications. Both are for Apple Silicon Macs.
 
 #### 2. Install an agentic coding CLI and log in
 
