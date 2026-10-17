@@ -62,6 +62,13 @@ cd backend && cargo test --locked && cargo clippy --locked --all-targets -- -D w
 pnpm typecheck && pnpm test
 ```
 
+## Keep the README's support table current
+
+The README's [What's supported](README.md#whats-supported) table lists every
+agentic coding CLI (`backend/src/agent.rs`), operating system and terminal
+host (`backend/src/terminal_host.rs`) mAIestro Code supports. When you add one,
+drop one, or change what it needs, update that table in the same pull request.
+
 ## Git workflow
 
 Every change to `main` goes through a pull request; a branch ruleset on
