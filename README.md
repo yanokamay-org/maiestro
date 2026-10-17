@@ -48,29 +48,31 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
 
 ## What's supported
 
-<!-- Keep this table in sync with the code: update it when an agent (agent.rs),
+<!-- Keep these tables in sync with the code: update them when an agent (agent.rs),
      an OS, or a terminal host (terminal_host.rs) is added or changes. -->
 
-| | macOS | Windows | Notes |
-| --- | :---: | :---: | --- |
-| **Agentic coding CLIs** | | | |
-| Claude Code (`claude`) | ✅ | ✅ | The default. Live status, session color and quota chip. On Windows its status hooks need Git Bash ([details](docs/session-status.md#windows)). |
-| Codex CLI (`codex`) | ✅ | ✅ | Live status after you trust mAIestro Code's hooks once in Codex ([details](docs/session-status.md#codex-sessions)); quota chip; no session color. |
-| Antigravity CLI (`agy`) | ✅ | ✅ | Live status ([details](docs/session-status.md#antigravity-sessions)); no session color and no quota chip. |
-| GitHub Copilot CLI (`copilot`) | ✅ | ✅ | Needs a Copilot subscription. Live status once you trust the worktree in Copilot ([details](docs/session-status.md#copilot-sessions)); quota chip; no session color. Drafting spends premium requests. |
-| **Operating systems** | | | |
-| macOS | ✅ | — | Lives in the menu bar. Signed and notarized `.dmg`. |
-| Windows 10 / 11 (x64) | — | ✅ | Preview. Lives in the notification area. Unsigned installer; no Windows on ARM build yet. Codex and Copilot status hooks there are not yet tested end to end ([details](docs/session-status.md#windows)). |
-| Linux and others | — | — | Not yet available. |
-| **Terminal hosts** | | | |
-| VS Code | ✅ | ✅ | The default: one window per session, themed in the worktree's color. Windows needs its `code` CLI. |
-| Terminal.app | ✅ | — | One window per session, tinted with the worktree's color. Needs macOS Automation permission to control Terminal ([details](docs/theming.md#terminalapp-sessions)). |
-| cmux | ✅ | — | One workspace per session. Needs cmux's Socket Control Mode set to **Automation** or **Password** ([details](docs/theming.md#cmux-sessions)). |
-| Windows Terminal | — | ✅ | One tab per session, tab-colored with the worktree's color. Ships with Windows 11; install it from the Microsoft Store or `winget` on Windows 10 ([details](docs/theming.md#windows-terminal-sessions)). |
+| Agentic coding CLI | macOS | Windows |
+| --- | :---: | :---: |
+| Claude Code (`claude`) | ✅ | ✅ |
+| Codex CLI (`codex`) | ✅ | ✅ |
+| Antigravity CLI (`agy`) | ✅ | ✅ |
+| GitHub Copilot CLI (`copilot`) | ✅ | ✅ |
+
+| Operating system | Supported |
+| --- | :---: |
+| macOS | ✅ |
+| Windows 10 / 11 (x64) | ✅ |
+| Linux and others | — |
+
+| Terminal host | macOS | Windows |
+| --- | :---: | :---: |
+| VS Code | ✅ | ✅ |
+| Terminal.app | ✅ | — |
+| cmux | ✅ | — |
+| Windows Terminal | — | ✅ |
 
 Each repo picks its agentic coding CLI and terminal host in Settings, or
-follows the global defaults; quota chips are described in
-[`docs/provider-quotas.md`](docs/provider-quotas.md).
+follows the global defaults.
 
 ## Installation
 
