@@ -57,7 +57,7 @@ logged in.
 #### 1. Install mAIestro Code
 
 ```bash
-brew install --cask yanokamay-org/tap/maiestro
+brew install --cask yanokamay-org/tap/maiestro-code
 ```
 
 Or download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications. Both are for Apple Silicon Macs.
