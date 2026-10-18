@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
 # Release pipeline for mAIestro Code. One release (one version, one tag, one
-# GitHub Release) carries the macOS .dmg AND the Windows installer, built on
-# two machines: the .dmg on the release Mac, the NSIS installer on a Windows
-# PC (Git Bash). Either machine can publish first; the release goes public only
-# once every expected asset is attached. Every command is idempotent, so a
-# partially-failed release resumes by re-running it:
+# GitHub Release) carries the universal macOS .dmg (Apple silicon + Intel) AND
+# the Windows installer, built on two machines: the .dmg on the release Mac,
+# the NSIS installer on a Windows PC (Git Bash). Either machine can publish
+# first; the release goes public only once every expected asset is attached.
+# Every command is idempotent, so a partially-failed release resumes by
+# re-running it:
 #
 #   release.sh bump <patch|minor|major|X.Y.Z>
 #       Bump the version in backend/tauri.conf.json, package.json,
@@ -14,7 +15,8 @@
 #
 #   release.sh build [--platform macos|windows]
 #       macos:   source .env.release, validate the signing identity, `tauri
-#                build`, and verify the signature / Gatekeeper assessment /
+#                build` the universal (arm64 + x86_64) app, and verify both
+#                slices / the signature / Gatekeeper assessment /
 #                notarization staple. tauri only notarizes the .app, so this
 #                also submits + staples the .dmg (which publish requires);
 #                already-stapled artifacts are skipped.
@@ -47,7 +49,8 @@
 #     (NOT "Apple Development" — that one is for local testing only and the app
 #     will not launch on other people's Macs), plus notarization credentials
 #     (see below). Without them the build is signed but not notarized, and
-#     Gatekeeper will block it on other machines.
+#     Gatekeeper will block it on other machines. And the Rust targets
+#     aarch64-apple-darwin and x86_64-apple-darwin, for the universal binary.
 #   * Windows: Git Bash, Python 3, and the Rust target x86_64-pc-windows-msvc.
 #   * For `publish` / `finalize`: a GITHUB_TOKEN with contents:write on this
 #     repo, on whichever machine runs them.
@@ -141,6 +144,11 @@ ALL_ASSET_KEYS="macos windows-x64"
 
 WIN_TRIPLES="x86_64-pc-windows-msvc"
 
+# The macOS build is one universal binary: Tauri compiles both slices and
+# lipo-merges them, so both targets must be installed.
+MAC_TARGET="universal-apple-darwin"
+MAC_TRIPLES="aarch64-apple-darwin x86_64-apple-darwin"
+
 platform_asset_keys() {
   case "$1" in
     macos)   echo "macos" ;;
@@ -148,11 +156,11 @@ platform_asset_keys() {
   esac
 }
 
-# The local bundle file for an asset key (a glob; the .dmg's arch varies).
+# The local bundle file for an asset key.
 asset_local_glob() {
   local key="$1" version="$2"
   case "$key" in
-    macos)         echo "backend/target/release/bundle/dmg/mAIestro Code_${version}_*.dmg" ;;
+    macos)         echo "backend/target/$MAC_TARGET/release/bundle/dmg/mAIestro Code_${version}_universal.dmg" ;;
     windows-x64)   echo "backend/target/x86_64-pc-windows-msvc/release/bundle/nsis/mAIestro Code_${version}_x64-setup.exe" ;;
   esac
 }
@@ -361,8 +369,35 @@ cmd_build() {
   esac
 }
 
+# Die unless every given Rust target triple is installed.
+require_rust_targets() {
+  local installed triple
+  installed="$(rustup target list --installed | tr -d '\r')"
+  for triple in "$@"; do
+    grep -qx "$triple" <<<"$installed" \
+      || die "Rust target $triple is not installed — run: rustup target add $triple"
+  done
+}
+
+# Die unless the .app's main binary carries both the arm64 and x86_64 slices,
+# so a single-arch build can never ship under the universal name.
+verify_universal() {
+  local app="$1" exe bin archs arch
+  exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")" \
+    || die "can't read CFBundleExecutable from $app"
+  bin="$app/Contents/MacOS/$exe"
+  archs="$(lipo -archs "$bin")" || die "lipo failed on $bin"
+  for arch in arm64 x86_64; do
+    [[ " $archs " == *" $arch "* ]] || die "$bin lacks the $arch slice (has: $archs)"
+  done
+  echo "  $exe: $archs ✓"
+}
+
 build_macos() {
   source_env
+
+  command -v rustup >/dev/null || die "rustup not found"
+  require_rust_targets $MAC_TRIPLES
 
   [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]] || {
     echo "error: APPLE_SIGNING_IDENTITY is not set." >&2
@@ -392,9 +427,12 @@ build_macos() {
   echo "Building signed release as: $APPLE_SIGNING_IDENTITY"
   # Marks the binary as an official release build (backend/build.rs stamps it in).
   # Without it the About panel labels the version "X.Y.Z+dev".
-  MAIESTRO_RELEASE=1 pnpm tauri build
+  MAIESTRO_RELEASE=1 pnpm tauri build --target "$MAC_TARGET"
 
-  local app="backend/target/release/bundle/macos/mAIestro Code.app"
+  local app="backend/target/$MAC_TARGET/release/bundle/macos/mAIestro Code.app"
+  echo
+  echo "Verifying architectures…"
+  verify_universal "$app"
   echo
   echo "Verifying signature…"
   codesign --verify --deep --strict --verbose=2 "$app"
@@ -438,13 +476,9 @@ build_macos() {
 build_windows() {
   command -v pnpm >/dev/null || die "pnpm not found"
   command -v rustup >/dev/null || die "rustup not found"
-  local installed triple
-  installed="$(rustup target list --installed | tr -d '\r')"
-  for triple in $WIN_TRIPLES; do
-    grep -qx "$triple" <<<"$installed" \
-      || die "Rust target $triple is not installed — run: rustup target add $triple"
-  done
+  require_rust_targets $WIN_TRIPLES
 
+  local triple
   for triple in $WIN_TRIPLES; do
     echo "Building $triple installer (unsigned)…"
     # MAIESTRO_RELEASE: see build_macos.
