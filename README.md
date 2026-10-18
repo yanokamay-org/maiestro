@@ -62,7 +62,7 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
     <tr><td>Antigravity CLI (<code>agy</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
     <tr><td>GitHub Copilot CLI (<code>copilot</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
     <tr><th colspan="3" align="left">Operating systems</th></tr>
-    <tr><td>macOS</td><td align="center">✅</td><td align="center">—</td></tr>
+    <tr><td>macOS (Apple silicon + Intel)</td><td align="center">✅</td><td align="center">—</td></tr>
     <tr><td>Windows 10 / 11 (x64)</td><td align="center">—</td><td align="center">✅</td></tr>
     <tr><th colspan="3" align="left">Terminal hosts</th></tr>
     <tr><td>VS Code</td><td align="center">✅</td><td align="center">✅</td></tr>
