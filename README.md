@@ -62,7 +62,7 @@ A macOS menu-bar app that quickly shows active AI coding sessions. Features incl
     <tr><td>Antigravity CLI (<code>agy</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
     <tr><td>GitHub Copilot CLI (<code>copilot</code>)</td><td align="center">✅</td><td align="center">✅</td></tr>
     <tr><th colspan="3" align="left">Operating systems</th></tr>
-    <tr><td>macOS</td><td align="center">✅</td><td align="center">—</td></tr>
+    <tr><td>macOS (Apple silicon + Intel)</td><td align="center">✅</td><td align="center">—</td></tr>
     <tr><td>Windows 10 / 11 (x64)</td><td align="center">—</td><td align="center">✅</td></tr>
     <tr><th colspan="3" align="left">Terminal hosts</th></tr>
     <tr><td>VS Code</td><td align="center">✅</td><td align="center">✅</td></tr>
@@ -84,7 +84,7 @@ Claude Code (the default), Codex CLI, Antigravity CLI, or GitHub Copilot CLI —
 logged in.
 
 #### 1. Install mAIestro Code
-Download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications.
+Download the latest `.dmg` from the [Releases page](https://github.com/yanokamay-org/maiestro/releases) and drag **mAIestro Code** to Applications. It is a universal build that runs on both Apple silicon and Intel Macs.
 
 #### 2. Install an agentic coding CLI and log in
 

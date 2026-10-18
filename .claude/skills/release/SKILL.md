@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a mAIestro Code release — bump the version, build this machine's installers (the signed, notarized .dmg on the release Mac; the x64 Windows installer on the Windows PC), and publish one GitHub Release carrying all of them. Runs the scripts/release.sh pipeline from the primary checkout, usable from any session including a mAIestro Code-spawned worktree; re-run it on the other machine to complete the release.
+description: Cut a mAIestro Code release — bump the version, build this machine's installers (the signed, notarized universal .dmg on the release Mac; the x64 Windows installer on the Windows PC), and publish one GitHub Release carrying all of them. Runs the scripts/release.sh pipeline from the primary checkout, usable from any session including a mAIestro Code-spawned worktree; re-run it on the other machine to complete the release.
 allowed-tools: Bash(git *) Bash(gh *) Bash(scripts/release.sh *) Bash(cd *) Read Write AskUserQuestion
 ---
 
@@ -14,7 +14,7 @@ GitHub Release carrying
 
 | Asset key | Built on | File |
 |---|---|---|
-| `macos` | the release Mac | the signed + notarized `.dmg` |
+| `macos` | the release Mac | the signed + notarized universal `.dmg` (Apple silicon + Intel) |
 | `windows-x64` | the Windows PC (Git Bash) | `mAIestro-Code_X.Y.Z_x64-unsigned-setup.exe` |
 
 Either machine can go first. The first `publish` creates a **draft** release;
@@ -65,8 +65,8 @@ re-invoking this skill after a failure resumes rather than restarts.
    --first-parent --pretty='%s'`, or the last 30 commits when there is no prior
    tag). Write brief, internal-facing markdown notes (this is a solo tool — no
    localization, no character limits). Group user-visible changes; drop pure
-   chore/CI noise. End with a per-platform line, e.g. *macOS: signed and
-   notarized .dmg. Windows (preview, unsigned — SmartScreen will warn): x64
+   chore/CI noise. End with a per-platform line, e.g. *macOS (Apple silicon +
+   Intel): signed and notarized universal .dmg. Windows (preview, unsigned — SmartScreen will warn): x64
    installer.* Windows stays "preview" until #160 closes and "unsigned"
    until #224 lands. **Show the draft and get approval** via AskUserQuestion
    ("Looks good, publish" vs "I'll tweak the wording") before touching anything.
@@ -103,7 +103,9 @@ re-invoking this skill after a failure resumes rather than restarts.
    ```
    cd <primary> && scripts/release.sh build
    ```
-   On the Mac this signs and notarizes (slow — a round-trip to Apple). On
+   On the Mac this builds one universal (arm64 + x86_64) app, checks both
+   slices are present, and signs and notarizes it (slow — a round-trip to
+   Apple). On
    Windows it builds the x64 installer (unsigned). `--platform` defaults to the host.
 
 8. **Publish.** Write the approved notes to a temp file (first machine only),
@@ -138,9 +140,11 @@ a partially-failed release resumes by re-running it:
   `backend/Cargo.toml` and the `maiestro` entry of `backend/Cargo.lock`, and
   asserts all four agree. It does not commit.
 - **`build [--platform macos|windows]`** — macOS: sources `.env.release`,
-  validates the `APPLE_SIGNING_IDENTITY`, runs `pnpm tauri build` (Tauri
-  auto-notarizes when the Apple credentials are present), verifies the
-  signature / Gatekeeper assessment / notarization staple, and notarizes +
+  validates the `APPLE_SIGNING_IDENTITY` and the `aarch64-apple-darwin` /
+  `x86_64-apple-darwin` Rust targets, runs `pnpm tauri build --target
+  universal-apple-darwin` (Tauri auto-notarizes when the Apple credentials are
+  present), checks with `lipo` that the binary carries both the `arm64` and
+  `x86_64` slices, verifies the signature / Gatekeeper assessment / notarization staple, and notarizes +
   staples the `.dmg`. Windows: `pnpm tauri build --target <triple> --bundles
   nsis` for `x86_64-pc-windows-msvc`, unsigned (ARM64 is #232).
   Both set `MAIESTRO_RELEASE=1` so the About panel shows the clean version.
@@ -182,8 +186,9 @@ Run `scripts/release.sh` with no args to see the usage from the shell.
 
 ## Release machines
 
-- **Mac:** a Developer ID Application certificate in the login keychain,
-  notarization credentials and `GITHUB_TOKEN` in `.env.release`.
+- **Mac:** a Developer ID Application certificate in the login keychain, the
+  Rust targets for the universal build (`rustup target add
+  aarch64-apple-darwin x86_64-apple-darwin`), notarization credentials and `GITHUB_TOKEN` in `.env.release`.
 - **Windows PC:** Git Bash (the supported shell — not WSL or PowerShell),
   Python 3 (`python3`, `python` or `py -3`, whichever really runs), Node +
   pnpm, Rust (MSVC toolchain) with Visual Studio's C++ build tools, and
